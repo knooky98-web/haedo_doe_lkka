@@ -110,10 +110,6 @@ String inferSemiTag(String action, ActionKind kind) {
     return 'spend';
   }
 
-  // 휴식/회복 계열
-  if (RegExp(r'(낮잠|휴식|멍때|산책|명상|힐링|회복)').hasMatch(a)) {
-    return 'rest';
-  }
 
   // 성장/루틴(기본)
   if (RegExp(r'(루틴|습관|정리|학습|공부|독서|운동)').hasMatch(a)) {
@@ -125,9 +121,9 @@ String inferSemiTag(String action, ActionKind kind) {
     case ActionKind.good:
       return 'growth';
     case ActionKind.bad:
-      return 'control';
+      return 'spend'; // or 'screen' or 'control 제거 후 중립 태그'
     case ActionKind.neutral:
-      return 'balance';
+      return 'screen';
   }
 }
 
@@ -150,12 +146,11 @@ List<JudgeQuestion> semiQuestions({
     JudgeQuestion(
       id: '${idp}_limit',
       group: '${idp}_core',
-      title: '오늘은 “선(시간/강도)”을 정할 수 있어?',
+      title: '“시간/강도”의 상한을 정할 수 있어?',
       choices: const [
-        Choice('가능(선 정하고 지킬게)', 6
-        ),
+        Choice('가능', 6),
         Choice('애매', 0),
-        Choice('지키기 어려워', -8),
+        Choice('정하기 어려워', -8),
       ],
       tags: semiTags,
     ),
@@ -164,8 +159,7 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_core',
       title: '중간에 멈추거나 줄일 수 있을까?',
       choices: const [
-        Choice('멈출 수 있어', 6
-        ),
+        Choice('멈출 수 있어', 6),
         Choice('상황 봐서(유동적)', 0),
         Choice('시작하면 길어져', -8),
       ],
@@ -180,8 +174,7 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_food_food',
       title: '지금은 “배고픔”이야, “습관/입 심심”이야?',
       choices: const [
-        Choice('진짜 배고픔', 2
-        ),
+        Choice('진짜 배고픔', 2),
         Choice('반반', -2),
         Choice('습관/입 심심', -6),
       ],
@@ -192,8 +185,7 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_food_food',
       title: '대체 선택(물/과일/단백질/가벼운 것)이 가능해?',
       choices: const [
-        Choice('가능해', 6
-        ),
+        Choice('가능해', 6),
         Choice('애매', 0),
         Choice('대체 어려워(그게 땡겨)', -6),
       ],
@@ -202,10 +194,9 @@ List<JudgeQuestion> semiQuestions({
     JudgeQuestion(
       id: '${idp}_food_time',
       group: '${idp}_food_night',
-      title: '시간대가 늦을수록 내일 영향이 커져. 지금은?',
+      title: '시간대가 늦을수록 내일 영향이 커져. 지금 시간은?',
       choices: [
-        Choice('이른 편', 4
-        ),
+        Choice('이른 편', 4),
         Choice('보통', 0),
         Choice('늦은 편(22시 이후)', isNight ? -8 : -4),
       ],
@@ -216,8 +207,7 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_food_food',
       title: '“적당히”의 기준(양/메뉴)을 정해놨어?',
       choices: const [
-        Choice('정해놨어', 6
-        ),
+        Choice('정해놨어', 6),
         Choice('대충', 0),
         Choice('정해둔 건 없어', -6),
       ],
@@ -228,8 +218,7 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_food_food',
       title: '먹고 나서 바로 할 “정리 액션”(양치/물/가벼운 정리)이 있어?',
       choices: const [
-        Choice('있어', 4
-        ),
+        Choice('있어', 4),
         Choice('애매', 0),
         Choice('없어', -4),
       ],
@@ -241,12 +230,11 @@ List<JudgeQuestion> semiQuestions({
     JudgeQuestion(
       id: '${idp}_screen_purpose',
       group: '${idp}_screen_core',
-      title: '지금은 목적 있는 시청이야, 자동재생 흐름이야?',
+      title: '지금은 목적 있는 시청이야?',
       choices: const [
-        Choice('목적 있음', 4
-        ),
-        Choice('반반', 0),
-        Choice('자동재생에 끌려', -6),
+        Choice('목적 있음', 4),
+        Choice('애매', 0),
+        Choice('목적 없음', -6),
       ],
       tags: semiTags,
     ),
@@ -255,8 +243,7 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_screen_core',
       title: '타이머/알람으로 “끝내는 시간”을 걸어둘래?',
       choices: const [
-        Choice('걸 수 있어', 6
-        ),
+        Choice('걸 수 있어', 6),
         Choice('애매', 0),
         Choice('안 걸 것 같아', -6),
       ],
@@ -265,10 +252,9 @@ List<JudgeQuestion> semiQuestions({
     JudgeQuestion(
       id: '${idp}_screen_sleep',
       group: '${idp}_screen_night',
-      title: '수면에 영향이 있어 보이면 강도를 낮추는 게 좋아. 지금은?',
+      title: '수면에 영향이 있다면 강도/시간을 줄이는 게 좋아. 지금 시간은?',
       choices: [
-        Choice('수면과 멀어', 4
-        ),
+        Choice('자려면 멀었어', 4),
         Choice('보통', 0),
         Choice('수면 직전', isNight ? -8 : -4),
       ],
@@ -282,8 +268,7 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_spend_core',
       title: '이건 “필요”에 가까워, “욕구”에 가까워?',
       choices: const [
-        Choice('필요', 6
-        ),
+        Choice('필요', 6),
         Choice('반반', 0),
         Choice('욕구', -6),
       ],
@@ -294,15 +279,13 @@ List<JudgeQuestion> semiQuestions({
       group: '${idp}_spend_core',
       title: '예산/한도를 지키는 규칙이 있어?',
       choices: const [
-        Choice('있어', 6
-        ),
+        Choice('있어', 6),
         Choice('애매', 0),
         Choice('없어', -8),
       ],
       tags: semiTags,
     ),
   ];
-
 
 
   // --------------------------
@@ -520,7 +503,7 @@ List<JudgeQuestion> semiQuestions({
     JudgeQuestion(
       id: '${idp}_clean_timer',
       group: '${idp}_clean_core',
-      title: '30분 타이머 걸고 정리할 수 있어?',
+      title: '시간을 정해놓고 그 시간 동안 정리할 수 있어?',
       choices: const [
         Choice('가능', 6),
         Choice('애매', 0),
@@ -577,7 +560,7 @@ List<JudgeQuestion> semiQuestions({
     JudgeQuestion(
       id: '${idp}_study_setup',
       group: '${idp}_study_core',
-      title: '책/노트/강의 등 필요한 것들이 바로 열려 있어?',
+      title: '책/노트/강의 등 필요한 것들을 바로 준비 할 수 있어?',
       choices: const [
         Choice('돼 있어', 4),
         Choice('애매', 0),
@@ -970,9 +953,6 @@ List<JudgeQuestion> semiQuestions({
     'caffeine': caffeine,
     'game': game,
     'growth': growth,
-    'rest': rest,
-    'control': control,
-    'balance': balance,
   };
 
   return [...common, ...(byTag[tag] ?? balance)];
@@ -1200,20 +1180,6 @@ List<JudgeQuestion> buildQuestionPool({required String action, required ActionKi
           tag == 'spend' ||     // 지출
           tag == 'caffeine';    // 카페인
 
-  if (allowSocial) {
-    base.add(
-      JudgeQuestion(
-        id: 'social',
-        group: 'base_social',
-        title: '이 선택이 관계/약속과 연결돼 있어?',
-        choices: const [
-          Choice('관련 있음', 2),
-          Choice('약간', 0),
-          Choice('전혀 아님', 0),
-        ],
-      ),
-    );
-  }
 
   // ✅ kind 전용 질문(두 번째 질문에 들어가게 되는 '톤/위험도' 체크)
   final kindSet = <JudgeQuestion>[
@@ -1367,1656 +1333,1154 @@ List<JudgeQuestion> buildQuestionPool({required String action, required ActionKi
   ),
 
 
-  // ✅ 확장 기본 질문(시간/돈/감정/리스크/관계/회복/루틴/장기목표/상황)
+  // ===== base3_time (리라이팅 버전) =====
+
   JudgeQuestion(
   id: 'base3_time_01',
   group: 'base3_time',
-  title: '오늘 일정에서 이 행동을 넣으면 다른 중요한 일이 밀릴까?',
+  title: '오늘 일정에 이걸 넣으면 다른 중요한 일이 밀릴 가능성이 커?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('밀릴 가능성 큼', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('거의 안 밀림', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_02',
   group: 'base3_time',
-  title: '지금 시작하면 끝나는 예상 시간은 현실적이야?',
+  title: '지금 시작하면 끝나는 시간(예상)이 현실적인 편이야?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('비현실적이야', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('현실적이야', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_03',
   group: 'base3_time',
-  title: '타이머(예: 10/20/30분)로 \'딱 여기까지\'를 정할 수 있어?',
+  title: '타이머로 “여기까지만”을 정하고 지킬 수 있어?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('지키기 어려워', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('지킬 수 있어', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_04',
   group: 'base3_time',
-  title: '이걸 지금 하면 오늘의 \'피로 예산\'을 초과할까?',
+  title: '이걸 하면 오늘 “피로/에너지 예산”을 초과할 것 같아?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('초과할 듯', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('초과 안 할 듯', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_05',
   group: 'base3_time',
-  title: '내일 아침이 더 힘들어질 가능성이 있어?',
+  title: '이걸 하면 내일 아침이 더 힘들어질 가능성이 커?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('커', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('크지 않아', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_06',
   group: 'base3_time',
-  title: '지금이 \'최고 집중 시간\'인데 그걸 써도 괜찮아?',
+  title: '지금이 “집중 잘 되는 시간”인데, 이걸로 써도 괜찮아?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('아까워(다른 거 해야 함)', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('써도 괜찮아', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_07',
   group: 'base3_time',
-  title: '이 행동을 미루면 더 커지는 문제야, 아니면 그냥 욕구야?',
+  title: '지금 안 하면 손해가 생기는 행동이야?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('손해가 커짐', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('지금 안 해도 문제 없음', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_08',
   group: 'base3_time',
-  title: '오늘 남은 시간 중 최소 1/3은 휴식으로 남겨둘 수 있어?',
+  title: '오늘 남은 시간 중 “휴식”을 최소한은 남겨둘 수 있어?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('남기기 어려워', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('남길 수 있어', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_09',
   group: 'base3_time',
-  title: '이 행동은 지금 5분만 해도 효과가 나?',
+  title: '이 행동은 “10분만 해도” 의미 있는 효과가 나?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('효과 거의 없음', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('효과 있음', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_10',
   group: 'base3_time',
-  title: '지금 한다면 \'중간에 끊겼을 때\' 손해가 큰 편이야?',
+  title: '지금 시작했다가 중간에 끊기면 손해가 큰 편이야?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('손해가 큼', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('손해 거의 없음', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_11',
   group: 'base3_time',
-  title: '이 행동을 하면 잠드는 시간이 늦어질 것 같아?',
+  title: '이걸 하면 잠드는 시간이 늦어질 가능성이 커?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('늦어질 듯', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('크지 않아', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_12',
   group: 'base3_time',
-  title: '30분 뒤에도 이걸 하고 싶을 것 같아?',
+  title: '30분 뒤에도 이걸 “여전히 하고 싶을” 것 같아?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('아니(식을 듯)', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('응(계속 하고 싶음)', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_13',
   group: 'base3_time',
-  title: '지금 하는 게 \'최적 타이밍\'인 이유가 확실해?',
+  title: '지금이 “최적 타이밍”이라는 이유가 분명해?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('분명하지 않아', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('분명해', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_14',
   group: 'base3_time',
-  title: '이 행동 전후로 준비/정리 시간이 많이 드나?',
+  title: '이 행동은 준비/정리(세팅/치우기) 시간이 많이 드는 편이야?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('많이 듦', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('거의 안 듦', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_15',
   group: 'base3_time',
-  title: '이 행동을 한 번 더 하면 오늘 총 몇 시간째야?',
+  title: '이걸 하면 오늘 “총량(시간/횟수)”이 과해질 가능성이 있어?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('과해질 듯', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('괜찮을 듯', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_16',
   group: 'base3_time',
-  title: '지금 시작하면 \'약속/식사/운동\'을 건드릴 수 있어?',
+  title: '지금 시작하면 약속/식사/운동 같은 고정 일정을 건드릴 수 있어?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('건드릴 수 있어', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('안 건드려', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_17',
   group: 'base3_time',
-  title: '이 행동을 \'짧게\'도 할 수 있어? (압축 버전)',
+  title: '이 행동을 “짧게(압축 버전)”로 끝낼 수도 있어?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('어려워(길어질 듯)', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('가능해(짧게 가능)', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_time_18',
   group: 'base3_time',
-  title: '지금은 \'리셋(샤워/산책/물)\'이 먼저일 수도 있어. 그래도 할래?',
+  title: '지금은 먼저 리셋(물/샤워/산책)이 필요한 상태일 수도 있어. 그래도 할래?',
   choices: const [
-  Choice('위험해', -6),
+  Choice('리셋이 먼저 같아', -6),
   Choice('애매', 0),
-  Choice('괜찮아', 6),
+  Choice('그래도 해도 돼', 6),
   ],
   ),
+
+
+  // ===== base3_money (최종 리라이팅 반영본) =====
 
   JudgeQuestion(
   id: 'base3_money_01',
   group: 'base3_money',
-  title: '이 행동에 드는 비용(또는 기회비용)이 내가 정한 예산 안이야?',
+  title: '이 지출, 내가 정해둔 예산 안에서 감당 가능한 수준이야?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('감당 어렵다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('감당 가능하다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_02',
   group: 'base3_money',
-  title: '지금 결제하면 24시간 뒤에도 후회 없을까?',
+  title: '하루 지나서 다시 봐도 “잘 샀다”라고 느낄 것 같아?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('후회할 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('그럴 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_03',
   group: 'base3_money',
-  title: '이건 \'필요\'야, \'편의\'야, \'기분\'이야?',
+  title: '이건 정말 필요한 지출이야, 아니면 그냥 기분 지출이야?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('기분 지출에 가깝다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('필요한 지출이다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_04',
   group: 'base3_money',
-  title: '가장 싼/합리적 대안이 있는데도 굳이 이걸 고르는 이유가 있어?',
+  title: '더 싸거나 합리적인 대안이 있는데도, 이걸 고를 분명한 이유가 있어?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('이유가 약하다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('분명한 이유가 있다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_05',
   group: 'base3_money',
-  title: '이 지출이 다음 주 생활에 부담을 줄 가능성이 있어?',
+  title: '이거 사고 나면 다음 주 생활비가 빠듯해질 것 같아?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('빠듯해질 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('괜찮을 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_06',
   group: 'base3_money',
-  title: '이 돈으로 더 우선순위 높은 걸 해결할 수 있어?',
+  title: '이 돈을 더 중요한 데 써야 한다는 생각은 안 들어?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('그 생각이 든다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('지금 써도 괜찮다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_07',
   group: 'base3_money',
-  title: '카드/후불이 아니라 지금 현금처럼 느끼고 결정했어?',
+  title: '이걸 실제 현금 나간다고 생각하고도 같은 선택을 할까?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('아니었을 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('같은 선택 할 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_08',
   group: 'base3_money',
-  title: '지금은 할인/한정이라 급한데, 진짜 지금만 가능한 거야?',
+  title: '“지금 아니면 안 돼”라는 말에 휩쓸린 건 아닐까?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('그런 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('아니다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_09',
   group: 'base3_money',
-  title: '이 지출이 \'습관화\'되면 한 달에 얼마나 될까?',
+  title: '이게 습관처럼 반복되면, 한 달 지출로 봐도 괜찮을까?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('부담될 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('괜찮을 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_10',
   group: 'base3_money',
-  title: '이건 \'한 번\'으로 끝나, 아니면 추가 지출이 따라와?',
+  title: '이거 한 번으로 끝날까, 아니면 계속 돈이 들어갈까?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('계속 돈이 들 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('한 번으로 끝날 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_11',
   group: 'base3_money',
-  title: '같은 만족을 더 적은 돈으로 얻을 방법이 떠올라?',
+  title: '비슷한 만족을 더 적은 돈으로 얻을 방법이 떠올라?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('떠오른다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('안 떠오른다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_12',
   group: 'base3_money',
-  title: '이 지출이 내 가치관/목표(저축/투자/경험)에 맞아?',
+  title: '이 지출, 지금의 내 목표나 가치관이랑 어긋나진 않아?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('어긋난다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('잘 맞는다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_13',
   group: 'base3_money',
-  title: '지금 사면 집/방/책상에 쌓여서 죄책감 생길 것 같아?',
+  title: '사놓고 안 쓰거나 쌓아두면서 후회할 것 같아?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('그럴 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('아닐 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_14',
   group: 'base3_money',
-  title: '환불/취소가 쉬운 편이야?',
+  title: '마음 바뀌면 쉽게 취소하거나 환불할 수 있어?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('어렵다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('쉽다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_15',
   group: 'base3_money',
-  title: '지금 사지 않아도 내일/다음 주에 충분히 살 수 있어?',
+  title: '굳이 지금 아니어도 나중에 사도 되는 거야?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('지금 아니면 안 된다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('나중에도 된다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_16',
   group: 'base3_money',
-  title: '이 지출을 한다면 다른 한 가지 지출을 포기할 수 있어?',
+  title: '이걸 산다면, 다른 지출 하나는 포기할 각오가 돼 있어?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('포기 어렵다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('포기할 수 있다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_17',
   group: 'base3_money',
-  title: '이건 \'남에게 보여주기\' 비중이 큰 편이야?',
+  title: '이거, 나 자신보다 남 시선이 더 신경 쓰여서 사고 싶은 건 아닐까?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('그런 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('아니다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_money_18',
   group: 'base3_money',
-  title: '이 구매가 오늘 기분을 잠깐 올리고 끝날 것 같아?',
+  title: '이건 기분만 잠깐 좋아지고 금방 시들 선택일까?',
   choices: const [
-  Choice('예산 초과/후회각', -7),
+  Choice('그럴 것 같다', -7),
   Choice('애매', 0),
-  Choice('예산 OK/가치 있음', 7),
+  Choice('아닐 것 같다', 7),
   ],
   ),
+
+
+  // ===== base3_emotion (최종 리라이팅 반영본) =====
 
   JudgeQuestion(
   id: 'base3_emotion_01',
   group: 'base3_emotion',
-  title: '지금 감정(스트레스/분노/허무)이 판단을 밀어붙이고 있어?',
+  title: '지금 이 선택, 감정보다 이성으로 결정하고 있다고 느껴?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('아니다 (감정이 앞선다)', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('그렇다 (이성적이다)', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_02',
   group: 'base3_emotion',
-  title: '지금은 \'보상 심리\'로 하고 싶은 거야?',
+  title: '힘들어서 “이 정도는 보상 받아도 되지”라는 마음이 커진 건 아닐까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('그런 마음이 크다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('아니다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_03',
   group: 'base3_emotion',
-  title: '이 행동이 끝나면 기분이 더 나빠질 가능성이 있어?',
+  title: '이 행동이 끝난 뒤의 내 기분이 지금보다 나아질 것 같아?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('오히려 나빠질 것 같다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('나아질 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_04',
   group: 'base3_emotion',
-  title: '지금 마음이 급하면 결정 품질이 떨어질 수 있어. 그래도 할래?',
+  title: '지금 마음이 급한 상태에서 내려도 괜찮은 결정일까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('괜찮지 않을 것 같다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('괜찮을 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_05',
   group: 'base3_emotion',
-  title: '이건 회피(하기 싫은 일 피하기) 성격이 강해?',
+  title: '이 선택, 하기 싫은 걸 미루기 위한 회피에 가까운 것 같아?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('회피에 가깝다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('아니다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_06',
   group: 'base3_emotion',
-  title: '지금 외로움/심심함을 채우려는 행동일 수 있어?',
+  title: '외로움이나 심심함을 달래려는 선택은 아닐까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('그런 것 같다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('아니다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_07',
   group: 'base3_emotion',
-  title: '지금 상태에서 \'딱 5분만\' 쉬고도 똑같이 하고 싶을까?',
+  title: '딱 5분만 쉬고 나서도, 여전히 이걸 하고 싶을까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('아닐 것 같다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('그럴 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_08',
   group: 'base3_emotion',
-  title: '이 행동이 나를 진짜 진정시키는 편이야, 아니면 자극만 주는 편이야?',
+  title: '이 행동이 나를 진정시켜 줄까, 아니면 잠깐 더 자극할 뿐일까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('자극에 가깝다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('진정에 가깝다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_09',
   group: 'base3_emotion',
-  title: '지금 죄책감이 이미 있는데도 또 하려고 해?',
+  title: '이미 마음 한편에 찜찜함이 있는데도 밀어붙이려는 건 아닐까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('그렇다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('아니다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_10',
   group: 'base3_emotion',
-  title: '이 행동을 하면 \'자기혐오\'가 따라올 것 같아?',
+  title: '이걸 하고 나서 스스로에게 실망할 가능성은 없을까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('그럴 것 같다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('아닐 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_11',
   group: 'base3_emotion',
-  title: '이건 내 기분을 위한 \'건강한 선택\'에 가까워?',
+  title: '이 선택은 나를 돌보는 쪽에 더 가까운 행동일까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('아니다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('그렇다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_12',
   group: 'base3_emotion',
-  title: '지금은 누군가에게 확인/위로가 필요한 상태일 수 있어. 그게 먼저야?',
+  title: '지금은 행동보다, 누군가의 위로나 연결이 더 필요한 상태일까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('그렇다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('아니다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_13',
   group: 'base3_emotion',
-  title: '이 행동이 내 감정을 더 키울(과몰입) 수 있어?',
+  title: '이 행동이 감정을 더 키워서 과몰입으로 이어질 가능성은 없을까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('그럴 가능성 있다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('그렇지 않다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_14',
   group: 'base3_emotion',
-  title: '지금은 \'멈춤\'이 더 용기일 수도 있어. 멈출래?',
+  title: '지금은 밀어붙이기보다 잠깐 멈추는 게 더 나은 선택일까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('멈추는 게 나을 것 같다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('계속해도 괜찮다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_15',
   group: 'base3_emotion',
-  title: '내가 내일의 나에게 이 선택을 설명할 수 있어?',
+  title: '내일의 내가 이 선택을 이해해 줄 수 있을까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('이해 못 할 것 같다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('이해해 줄 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_17',
   group: 'base3_emotion',
-  title: '지금 기분을 0~10으로 치면? (0 최악) — 낮을수록 위험',
+  title: '지금 내 기분을 0~10으로 표현한다면, 꽤 낮은 편이야?',
   choices: const [
-  Choice('감정에 휘말림', -6),
-  Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('많이 낮다 (0~4)', -6),
+  Choice('애매 (5~7)', 0),
+  Choice('괜찮은 편이다 (8~10)', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_emotion_18',
   group: 'base3_emotion',
-  title: '이 행동 말고, 기분을 올릴 다른 안전한 방법이 떠올라?',
+  title: '이 행동 말고도, 지금 기분을 돌볼 다른 방법이 떠오를까?',
   choices: const [
-  Choice('감정에 휘말림', -6),
+  Choice('떠오른다', -6),
   Choice('애매', 0),
-  Choice('감정 안정/괜찮음', 6),
+  Choice('안 떠오른다', 6),
   ],
   ),
+
+
+  // ===== base3_risk (최종 리라이팅 반영본) =====
 
   JudgeQuestion(
   id: 'base3_risk_01',
   group: 'base3_risk',
-  title: '최악의 경우(손해/문제)가 뭔지 한 문장으로 말할 수 있어?',
+  title: '최악의 경우를 한 문장으로 또렷하게 말할 수 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('명확하다(리스크 큼)', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('관리 가능하다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_02',
   group: 'base3_risk',
-  title: '이 행동이 규칙/약속을 어기는 요소가 있어?',
+  title: '이 행동, 규칙이나 약속을 어길 소지가 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('그렇다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('아니다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_03',
   group: 'base3_risk',
-  title: '내 건강/수면/몸에 직접적인 악영향 가능성이 있어?',
+  title: '내 건강·수면·몸에 직접적인 데미지가 올 수 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('그럴 수 있다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('그렇지 않다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_04',
   group: 'base3_risk',
-  title: '이 행동은 되돌리기(복구)가 쉬운 편이야?',
+  title: '이 행동, 되돌리기 어렵거나 복구 비용이 큰 편이야?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('그렇다(되돌리기 어려움)', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('아니다(복구 쉬움)', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_05',
   group: 'base3_risk',
-  title: '지금 결정이 \'충동\'에 가까워?',
+  title: '지금 결정이 계획이 아니라 충동에 더 가깝다고 느껴?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('충동에 가깝다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('계획에 가깝다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_06',
   group: 'base3_risk',
-  title: '이 행동을 하다가 중단되면 큰 문제가 생겨?',
+  title: '하다가 중간에 멈추면 문제가 커질 가능성이 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('커질 수 있다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('그렇지 않다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_07',
   group: 'base3_risk',
-  title: '이 행동이 사람/관계를 망칠 수 있는 리스크가 있어?',
+  title: '이 행동이 사람이나 관계에 상처를 줄 위험이 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('위험이 있다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('위험 없다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_08',
   group: 'base3_risk',
-  title: '안전장치(제한, 타이머, 알람, 예산)를 걸어둘 수 있어?',
+  title: '안전장치(제한/타이머/예산)를 걸기 어렵거나, 걸어도 안 지킬 것 같아?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('그럴 것 같다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('아니다(지킬 수 있다)', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_09',
   group: 'base3_risk',
-  title: '이 행동의 리스크 대비 얻는 보상이 큰 편이야?',
+  title: '리스크 대비 보상이 확실히 크다고 말할 수 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('아니다(리스크가 더 큼)', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('그렇다(보상 큼)', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_10',
   group: 'base3_risk',
-  title: '내가 지금 리스크를 과소평가하고 있지 않아?',
+  title: '내가 지금 리스크를 작게 보고 있을 가능성이 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('그럴 가능성 있다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('그렇지 않다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_11',
   group: 'base3_risk',
-  title: '이 행동이 다음 일정에 사고(지각/실수)를 부를 수 있어?',
+  title: '이 행동이 다음 일정에 사고(지각·실수)를 부를 수 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('그럴 수 있다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('그렇지 않다', 8),
   ],
   ),
-
 
   JudgeQuestion(
   id: 'base3_risk_13',
   group: 'base3_risk',
-  title: '이 행동은 \'한 번\'이 아니라 반복되기 쉬워?',
+  title: '이 행동, “한 번만” 하고 끝내기 어렵고 반복되기 쉬워?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('반복되기 쉽다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('한 번으로 끝낼 수 있다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_14',
   group: 'base3_risk',
-  title: '내 기준선(원칙)을 넘는 선택이야?',
+  title: '내 기준선(원칙/선)을 넘는 선택일 수 있어?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('넘는 것 같다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('넘지 않는다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_15',
   group: 'base3_risk',
-  title: '주변 사람이 보면 말릴 가능성이 높아?',
+  title: '주변 사람이 보면 “그건 말려야 한다”라고 할 가능성이 높아?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('높다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('낮다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_16',
   group: 'base3_risk',
-  title: '이 행동으로 잃는 게 생기면 감당 가능해?',
+  title: '이 선택으로 손해가 생겨도 감당 가능하다고 확신해?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('확신 없다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('확신 있다', 8),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_risk_17',
   group: 'base3_risk',
-  title: '리스크가 있다면 \'작게 테스트\'부터 할 수 있어?',
+  title: '작게 테스트(소규모로 안전하게)도 하기 어려운 선택이야?',
   choices: const [
-  Choice('리스크 큼', -8),
+  Choice('어렵다', -8),
   Choice('애매', 0),
-  Choice('리스크 관리됨', 8),
+  Choice('가능하다', 8),
   ],
   ),
 
-
-  JudgeQuestion(
-  id: 'base3_relation_01',
-  group: 'base3_relation',
-  title: '이 선택이 누군가에게 피해/실망을 줄 가능성이 있어?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_02',
-  group: 'base3_relation',
-  title: '상대가 같은 상황이면 내가 권할 선택이야?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_03',
-  group: 'base3_relation',
-  title: '이 행동을 하면 약속(가족/연인/동료)을 깨게 돼?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-
-  JudgeQuestion(
-  id: 'base3_relation_05',
-  group: 'base3_relation',
-  title: '내가 지금 감정적으로 상대를 이용하려는 건 아니야?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_06',
-  group: 'base3_relation',
-  title: '이 선택을 미리 말하면 상대가 이해할 수 있을까?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_07',
-  group: 'base3_relation',
-  title: '지금은 혼자 결정하지 말고 의견을 듣는 게 더 안전해?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_08',
-  group: 'base3_relation',
-  title: '이 행동이 관계의 신뢰를 쌓는 쪽이야, 깎는 쪽이야?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_09',
-  group: 'base3_relation',
-  title: '상대의 입장/일정/감정을 충분히 고려했어?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_10',
-  group: 'base3_relation',
-  title: '내가 바라는 기대치를 상대에게 분명히 전달했어?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_11',
-  group: 'base3_relation',
-  title: '이 행동이 갈등을 키울 가능성이 있어?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_12',
-  group: 'base3_relation',
-  title: '지금은 사과/정리가 먼저일 수도 있어. 그래도 할래?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_13',
-  group: 'base3_relation',
-  title: '내가 지금 \'인정받고 싶어서\' 무리하는 건 아니야?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_14',
-  group: 'base3_relation',
-  title: '이 선택이 장기적으로 관계에 좋은 습관을 만들까?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_15',
-  group: 'base3_relation',
-  title: '관계 때문에 내가 내 원칙을 너무 포기하고 있어?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_16',
-  group: 'base3_relation',
-  title: '이 행동을 하면서도 \'경계선\'을 지킬 수 있어?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_17',
-  group: 'base3_relation',
-  title: '상대에게 부탁/요청을 할 때 예의/타이밍이 맞아?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_relation_18',
-  group: 'base3_relation',
-  title: '이 행동 후에 꼭 해야 하는 관계 정리가 있어?',
-  choices: const [
-  Choice('관계에 무리', -7),
-  Choice('애매', 0),
-  Choice('관계에 OK', 7),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_01',
-  group: 'base3_recovery',
-  title: '지금 몸 상태(피곤/통증/두통)가 좋지 않은 편이야?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_02',
-  group: 'base3_recovery',
-  title: '최근 3일 수면이 부족했다면, 이 행동은 위험해질 수 있어. 그래도 할래?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_03',
-  group: 'base3_recovery',
-  title: '배고픔/갈증 때문에 판단이 흐려진 상태일 수 있어. 먼저 해결할래?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_04',
-  group: 'base3_recovery',
-  title: '지금은 \'휴식/회복\'이 더 우선인 날이야?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_05',
-  group: 'base3_recovery',
-  title: '이 행동이 회복을 돕는 편이야, 방해하는 편이야?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_06',
-  group: 'base3_recovery',
-  title: '지금 카페인/자극을 더 넣으면 몸이 망가질 것 같아?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_07',
-  group: 'base3_recovery',
-  title: '오늘 운동/산책 같은 회복 행동을 10분이라도 했어?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_08',
-  group: 'base3_recovery',
-  title: '이 행동 후에 반드시 쉬는 시간을 확보할 수 있어?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_09',
-  group: 'base3_recovery',
-  title: '지금 자세/환경(침대/소파) 때문에 더 늘어질 것 같아?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_10',
-  group: 'base3_recovery',
-  title: '이 행동을 하면 식사/샤워/정리를 미루게 될 것 같아?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_11',
-  group: 'base3_recovery',
-  title: '지금 정신적으로 과부하(멍함) 상태야?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_12',
-  group: 'base3_recovery',
-  title: '‘지금은 쉬어도 된다’고 스스로 허락할 수 있어?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_13',
-  group: 'base3_recovery',
-  title: '회복을 위해 오늘은 \'작게\' 가는 게 낫지 않아?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_14',
-  group: 'base3_recovery',
-  title: '이 행동이 내일의 컨디션까지 갉아먹을 것 같아?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_15',
-  group: 'base3_recovery',
-  title: '지금은 5분 호흡/스트레칭이 먼저일 수 있어. 해볼래?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_16',
-  group: 'base3_recovery',
-  title: '몸이 보내는 경고(눈, 어깨, 허리)를 무시하고 있어?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_17',
-  group: 'base3_recovery',
-  title: '오늘 회복 목표(수면, 물, 산책) 중 하나라도 지켰어?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_recovery_18',
-  group: 'base3_recovery',
-  title: '이 행동을 할 거면 회복 플랜(물/휴식/종료)을 같이 세울래?',
-  choices: const [
-  Choice('컨디션 나쁨', -6),
-  Choice('애매', 0),
-  Choice('컨디션 괜찮음', 6),
-  ],
-  ),
+  // ===== base3_routine (최종 리라이팅 반영본) =====
 
   JudgeQuestion(
   id: 'base3_routine_01',
   group: 'base3_routine',
-  title: '이 행동이 내 루틴(수면/운동/공부/정리)을 깨는 쪽이야?',
+  title: '이 선택이 내 루틴(수면/운동/공부/정리)을 지키는 쪽일까, 깨는 쪽일까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('깨는 쪽에 가깝다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('지키는 쪽에 가깝다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_02',
   group: 'base3_routine',
-  title: '오늘 해야 할 최소 루틴 1가지는 이미 했어?',
+  title: '오늘 최소한의 기본 루틴 한 가지는 이미 지켜졌을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('아직 못 지켰다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('이미 지켰다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_03',
   group: 'base3_routine',
-  title: '이 행동을 하기 전에 \'준비 루틴\'(정리/계획)을 1분만 할 수 있어?',
+  title: '이 행동 전에 1분 정도의 준비 루틴(정리/계획)을 붙일 수 있을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('붙이기 어렵다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('붙일 수 있다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_04',
   group: 'base3_routine',
-  title: '이 행동을 하고 나서도 \'마무리 루틴\'(정리/기록)을 할 수 있어?',
+  title: '이 행동 후에도 마무리 루틴(정리/기록)을 이어갈 여지가 있을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('여지 없다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('여지 있다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_05',
   group: 'base3_routine',
-  title: '이 행동이 습관화되면 내 삶이 좋아질까?',
+  title: '이 행동이 반복되면, 전반적인 생활 루틴이 더 좋아질까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('오히려 흐트러질 것 같다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('더 좋아질 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_06',
   group: 'base3_routine',
-  title: '지금은 루틴이 무너지는 구간이라 작은 규칙이 필요해. 규칙을 정할래?',
+  title: '지금처럼 루틴이 흔들릴 때, 이 선택이 질서를 되찾는 데 도움이 될까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('도움 안 될 것 같다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('도움 될 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_07',
   group: 'base3_routine',
-  title: '오늘 내가 지키고 싶은 \'하나\'는 뭐야? 이 행동이 그걸 돕나?',
+  title: '오늘 내가 지키고 싶은 “하나”에, 이 선택은 도움이 될까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('도움 안 된다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('도움 된다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_08',
   group: 'base3_routine',
-  title: '이 행동이 자기관리(식사/수면)와 충돌해?',
+  title: '이 행동이 자기관리 루틴(식사/수면)과 충돌할 가능성이 있어?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('충돌할 것 같다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('충돌 안 할 것 같다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_09',
   group: 'base3_routine',
-  title: '이 행동을 \'의식적으로\' 선택하고 있어, 그냥 자동으로 하고 있어?',
+  title: '이 선택을 의식적으로 하고 있는 걸까, 습관처럼 자동으로 하고 있는 걸까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('자동에 가깝다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('의식적인 선택이다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_10',
   group: 'base3_routine',
-  title: '지금 내가 피하는 핵심 루틴이 있어? (예: 샤워/정리/공부)',
+  title: '지금 이 선택 때문에 미루고 있는 핵심 루틴이 있을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('있다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('없다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_11',
   group: 'base3_routine',
-  title: '이 행동은 보상으로 적절해, 아니면 루틴을 무너뜨리는 보상이야?',
+  title: '이 행동은 루틴을 지지하는 보상일까, 루틴을 무너뜨리는 보상일까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('무너뜨리는 보상', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('지지하는 보상', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_12',
   group: 'base3_routine',
-  title: '일정을 다시 잡기 위한 \'리셋\' 행동을 먼저 할 수 있어?',
+  title: '이 행동보다 먼저, 일정을 리셋하는 작은 행동이 필요하지 않을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('그럴 것 같다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('아니다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_13',
   group: 'base3_routine',
-  title: '이 행동을 한다면 종료 후 바로 할 작은 루틴을 정할래?',
+  title: '이 행동 뒤에 바로 이어질 작은 루틴을 붙일 수 있을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('붙이기 어렵다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('붙일 수 있다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_14',
   group: 'base3_routine',
-  title: '오늘 루틴 점수(0~10) 기준으로 지금 선택은 플러스야 마이너스야?',
+  title: '오늘 루틴 점수(0~10)로 보면, 이 선택은 플러스일까 마이너스일까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('마이너스에 가깝다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('플러스에 가깝다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_15',
   group: 'base3_routine',
-  title: '이 행동이 나를 성장시키는 반복이야, 소모시키는 반복이야?',
+  title: '이 반복은 나를 조금씩 성장시키는 쪽일까, 소모시키는 쪽일까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('소모에 가깝다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('성장에 가깝다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_16',
   group: 'base3_routine',
-  title: '내가 나에게 한 약속(예: 이번 주 목표)을 깨게 될까?',
+  title: '이 선택이 내가 나에게 한 약속을 흔들 가능성은 없을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('그럴 가능성 있다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('그렇지 않다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_17',
   group: 'base3_routine',
-  title: '이 행동을 \'미니 버전\'으로 바꿔 루틴을 지킬 수 있어?',
+  title: '이 행동을 미니 버전으로 바꿔도 루틴을 유지할 수 있을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('유지 어렵다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('유지 가능하다', 6),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_routine_18',
   group: 'base3_routine',
-  title: '이 행동 후 ‘기록’까지 하면 루틴이 된다. 기록할래?',
+  title: '이 행동을 기록까지 이어가면, 루틴으로 남길 수 있을까?',
   choices: const [
-  Choice('루틴 깨짐', -6),
+  Choice('어렵다', -6),
   Choice('애매', 0),
-  Choice('루틴에 도움', 6),
+  Choice('가능하다', 6),
   ],
   ),
+
+
+  // ===== base3_goal (최종 리라이팅 반영본) =====
 
   JudgeQuestion(
   id: 'base3_goal_01',
   group: 'base3_goal',
-  title: '이 행동이 장기 목표(커리어/건강/재정)에 도움이 돼?',
+  title: '이 선택이 장기 목표(커리어/건강/재정)에 실제로 도움이 될까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('목표와 어긋난다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('목표에 도움이 된다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_02',
   group: 'base3_goal',
-  title: '이건 \'미래의 나\'가 고마워할 선택일까?',
+  title: '‘미래의 나’가 돌아봤을 때 고마워할 선택일까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('아닐 것 같다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('그럴 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_03',
   group: 'base3_goal',
-  title: '1주일 뒤에 봐도 의미 있는 선택이야?',
+  title: '일주일 뒤에 다시 봐도 의미 있다고 느낄 선택일까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('의미 없을 것 같다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('의미 있을 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_04',
   group: 'base3_goal',
-  title: '이 행동이 지금 내 방향성과 일치해?',
+  title: '이 선택이 지금 내가 가려는 방향과 잘 맞을까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('맞지 않는다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('잘 맞는다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_05',
   group: 'base3_goal',
-  title: '이걸 하면 목표에 가까워지는 행동을 하나 덜 하게 되나?',
+  title: '이걸 하면 목표에 가까워지는 행동을 하나 포기하게 될까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice(';포기하게 될 것 같다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('그렇지 않을 것 같다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_06',
   group: 'base3_goal',
-  title: '이 행동이 내 정체성(나는 이런 사람)과 맞아?',
+  title: '이 선택이 내가 되고 싶은 사람(정체성)과 어울릴까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('어울리지 않는다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('잘 어울린다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_07',
   group: 'base3_goal',
-  title: '이건 \'단기 쾌감\'이야, \'장기 성과\'야?',
+  title: '이건 단기 쾌감에 더 가깝나, 장기 성과에 더 가깝나?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('단기 쾌감에 가깝다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('장기 성과에 가깝다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_08',
   group: 'base3_goal',
-  title: '장기적으로 비용(시간/돈/건강)이 커질 가능성이 있어?',
+  title: '장기적으로 시간/돈/건강 비용이 커질 가능성이 있을까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('그럴 가능성 크다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('그렇지 않다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_09',
   group: 'base3_goal',
-  title: '이 행동이 내 인생을 바꾸는 작은 습관이 될 수 있어?',
+  title: '이 행동이 ‘좋은 방향의 작은 습관’으로 이어질 가능성이 있을까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('가능성 낮다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('가능성 있다', 7),
   ],
   ),
-
 
   JudgeQuestion(
   id: 'base3_goal_11',
   group: 'base3_goal',
-  title: '이 행동을 하고 나서 다음 행동(연결)을 계획할 수 있어?',
+  title: '이 행동 뒤에 목표로 이어지는 ‘다음 한 걸음’을 연결할 수 있을까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('연결하기 어렵다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('연결할 수 있다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_12',
   group: 'base3_goal',
-  title: '이 선택이 내 가치(가족/성장/자유)에 맞아?',
+  title: '이 선택이 내 가치(가족/성장/자유 등)와 충돌하지 않을까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('충돌할 것 같다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('충돌하지 않는다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_13',
   group: 'base3_goal',
-  title: '이 행동이 내 평판/신뢰를 쌓는 쪽이야?',
+  title: '이 선택이 평판/신뢰를 쌓는 쪽에 더 가까울까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('아니다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('그렇다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_14',
   group: 'base3_goal',
-  title: '이 행동이 나를 분산시키는 쪽이야, 집중시키는 쪽이야?',
+  title: '이 행동이 나를 분산시키나, 목표에 더 집중하게 하나?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('분산시키는 편이다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('집중하게 하는 편이다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_15',
   group: 'base3_goal',
-  title: '오늘의 선택이 1년 뒤 누적되면 어떤 사람이 될까?',
+  title: '오늘의 선택이 1년 누적되면, 나는 목표에 더 가까워질까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('아닐 것 같다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('그럴 것 같다', 7),
   ],
   ),
-
 
   JudgeQuestion(
   id: 'base3_goal_17',
   group: 'base3_goal',
-  title: '이 행동을 목표에 맞게 조정(작게/깊게)할 수 있어?',
+  title: '이 행동을 목표에 맞게 ‘작게/깊게’ 조정해서 도움이 되게 만들 수 있을까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('조정하기 어렵다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('조정할 수 있다', 7),
   ],
   ),
 
   JudgeQuestion(
   id: 'base3_goal_18',
   group: 'base3_goal',
-  title: '이 행동을 하되, 목표를 지키는 안전장치를 넣을 수 있어?',
+  title: '이 행동을 하더라도 목표를 지키는 안전장치를 넣을 수 있을까?',
   choices: const [
-  Choice('목표와 어긋남', -7),
+  Choice('넣기 어렵다', -7),
   Choice('애매', 0),
-  Choice('목표에 도움', 7),
+  Choice('넣을 수 있다', 7),
   ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_context_01',
-  group: 'base3_context',
-  title: '지금 장소/상황에서 이 행동을 하는 게 적절해?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-
-  JudgeQuestion(
-  id: 'base3_context_03',
-  group: 'base3_context',
-  title: '핸드폰/앱/환경이 나를 유혹하게 세팅돼 있어? 차단할 수 있어?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_context_04',
-  group: 'base3_context',
-  title: '지금은 \'집중 환경\'을 만들지 않으면 실패할 확률이 높아. 환경을 바꿀래?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_context_05',
-  group: 'base3_context',
-  title: '이 행동을 하기에 필요한 준비가 갖춰져 있어?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-
-
-  JudgeQuestion(
-  id: 'base3_context_08',
-  group: 'base3_context',
-  title: '지금은 사람 시선 때문에 무리하는 선택을 하고 있어?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-
-  JudgeQuestion(
-  id: 'base3_context_10',
-  group: 'base3_context',
-  title: '지금 인터넷/알림 때문에 흐름이 깨질 것 같아. 알림 끌 수 있어?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_context_11',
-  group: 'base3_context',
-  title: '이 행동은 지금 \'앉아서\' 하기보다 \'서서/걷기\'로 바꾸면 좋아질까?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_context_12',
-  group: 'base3_context',
-  title: '지금은 기기 배터리/데이터 등 제약이 있어? 그럼 스트레스 될까?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-
-  JudgeQuestion(
-  id: 'base3_context_14',
-  group: 'base3_context',
-  title: '지금은 술자리/회식 같은 분위기 영향이 커? 그럼 결정 위험해져.',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_context_15',
-  group: 'base3_context',
-  title: '지금은 너무 늦어서(야간) 평소 기준이 흔들릴 수 있어. 인정할래?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
-  JudgeQuestion(
-  id: 'base3_context_16',
-  group: 'base3_context',
-  title: '이 행동을 할 거면 주변에 한마디(양해/공지)할 필요가 있어?',
-  choices: const [
-  Choice('환경 안 좋음', -5),
-  Choice('애매', 0),
-  Choice('환경 OK', 5),
-  ],
-  ),
-
+  ),];
 
 
   // ✅ 행동 전용 질문
@@ -3595,7 +3059,7 @@ List<JudgeQuestion> buildQuestionPool({required String action, required ActionKi
 
 
   // ✅ 태그 판정(구매/지출일 때만 money 질문 허용)
-  final tag = inferSemiTag(action, kind);
+  // (위에서 계산한 tag 재사용)
 
 // extraBase 안의 base3_money는 (spend/purchase)일 때만 유지
   final allowMoney = (tag == 'spend' || tag == 'purchase');
@@ -3604,4 +3068,4 @@ List<JudgeQuestion> buildQuestionPool({required String action, required ActionKi
       : extraBase.where((q) => q.group != 'base3_money').toList();
 
 // ✅ 최종 풀 반환
-  return [...base, ...kindSet, ...extraBaseFiltered, ...actionSpecific];
+  return [...base, ...kindSet, ...extraBaseFiltered, ...actionSpecific];}
