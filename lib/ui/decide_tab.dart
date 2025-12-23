@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core.dart';
 
@@ -908,8 +910,8 @@ $qa
 
 
   bool _isAiEnabled() {
-    // ✅ 5단계에서 AI는 “⚠️/🟡” 구간만
-    return result == 'MAYBE' || result == 'NO';
+    // ✅ 5단계 전부에서 AI 설명 허용
+    return true;
   }
 
   // --------------------------
@@ -918,92 +920,128 @@ $qa
   Future<void> _onAiDetail() async {
     if (!_isAiEnabled()) return;
 
-    final cs = Theme.of(context).colorScheme;
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) {
-        final mq = MediaQuery.of(ctx);
-        final maxH = (mq.size.height * 0.78).clamp(320.0, mq.size.height - 80);
+    // ✅ 1) 하루 사용 제한 체크
+    final used = await _AiUsageStore.getUsedToday();
+    if (used >= 3) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('AI 설명은 하루 3회까지 가능해')),
+      );
+      return;
+    }
 
-        return Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
-          child: Container(
-            constraints: BoxConstraints(maxHeight: maxH),
-            decoration: BoxDecoration(
-              color: cs.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: cs.outlineVariant.withOpacity(0.55)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('AI로 더 자세히 (준비중)',
-                      style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 8),
-                  Text(
-                    '지금 단계에서는 광고/AI를 아직 연결하지 않았어.\n대신, “AI에 보낼 프롬프트”를 생성해뒀고 복사할 수 있어.',
-                    style: TextStyle(color: cs.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        color: cs.surfaceContainerLowest,
-                        border: Border.all(
-                            color: cs.outlineVariant.withOpacity(0.45)),
-                      ),
-                      child: SingleChildScrollView(
-                        child: SelectableText(
-                          _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt,
-                          style: const TextStyle(fontSize: 13, height: 1.35),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
+    // ✅ 2) 리워드 광고 로드
+    final gate = _RewardedAdGate();
+    gate.load();
+
+    // 잠깐 대기 (로드 타임)
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    // ✅ 3) 광고 보여주기
+    await gate.show(
+      onRewarded: () async {
+        // ✅ 4) 사용 횟수 증가
+        await _AiUsageStore.increment();
+
+        if (!mounted) return;
+
+        // ✅ 5) AI 설명 BottomSheet 표시
+        await showModalBottomSheet<void>(
+          context: context,
+          useSafeArea: true,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) {
+            final cs = Theme.of(ctx).colorScheme;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: cs.outlineVariant.withOpacity(0.55)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text(
+                        'AI 설명',
+                        style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '아래 내용은 AI에게 전달할 설명 프롬프트야.\n'
+                            '지금은 복사해서 직접 써볼 수 있어.',
+                        style: TextStyle(color: cs.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 12),
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: () async {
-                            await Clipboard.setData(
-                                ClipboardData(text: _aiPrompt));
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('AI 프롬프트를 복사했어')),
-                            );
-                          },
-                          child: const Text('복사'),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            color: cs.surfaceContainerLowest,
+                            border: Border.all(
+                                color: cs.outlineVariant.withOpacity(0.45)),
+                          ),
+                          child: SingleChildScrollView(
+                            child: SelectableText(
+                              _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt,
+                              style:
+                              const TextStyle(fontSize: 13, height: 1.35),
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('닫기'),
-                        ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
+                                await Clipboard.setData(
+                                  ClipboardData(text: _aiPrompt),
+                                );
+                                if (ctx.mounted) Navigator.pop(ctx);
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('AI 프롬프트를 복사했어')),
+                                );
+                              },
+                              child: const Text('복사'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('닫기'),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
+        );
+      },
+      onFailed: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('광고를 불러오지 못했어요')),
         );
       },
     );
   }
+
 
   // --------------------------
   // build (UI는 기존 그대로)
@@ -1457,5 +1495,107 @@ class _ResultCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+/// =======================
+/// Rewarded Ad (local)
+/// =======================
+class _RewardedAdGate {
+  RewardedAd? _ad;
+  bool get isLoaded => _ad != null;
+
+  // ✅ Android 테스트 리워드 광고 유닛
+  static const String testUnitId = 'ca-app-pub-3940256099942544/5224354917';
+
+  void load({String adUnitId = testUnitId}) {
+    RewardedAd.load(
+      adUnitId: adUnitId,
+      request: const AdRequest(),
+      rewardedAdLoadCallback: RewardedAdLoadCallback(
+        onAdLoaded: (ad) {
+          _ad = ad;
+          _ad!.setImmersiveMode(true);
+        },
+        onAdFailedToLoad: (_) {
+          _ad = null;
+        },
+      ),
+    );
+  }
+
+  Future<void> show({
+    required Future<void> Function() onRewarded,
+    void Function()? onClosed,
+    void Function()? onFailed,
+  }) async {
+    final ad = _ad;
+    if (ad == null) {
+      onFailed?.call();
+      return;
+    }
+
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _ad = null;
+        onClosed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (ad, _) {
+        ad.dispose();
+        _ad = null;
+        onFailed?.call();
+      },
+    );
+
+    await ad.show(
+      onUserEarnedReward: (_, __) async {
+        await onRewarded(); // ✅ 보상 콜백에서만 “AI 호출”
+      },
+    );
+  }
+
+  void dispose() {
+    _ad?.dispose();
+    _ad = null;
+  }
+}
+
+/// =======================
+/// AI usage limiter (local)
+/// =======================
+class _AiUsageStore {
+  static const _kDate = 'ai_used_date';
+  static const _kCount = 'ai_used_count';
+
+  static String _todayKey(DateTime now) =>
+      '${now.year.toString().padLeft(4, '0')}-'
+          '${now.month.toString().padLeft(2, '0')}-'
+          '${now.day.toString().padLeft(2, '0')}';
+
+  static Future<int> getUsedToday() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = _todayKey(DateTime.now());
+
+    final savedDate = prefs.getString(_kDate);
+    if (savedDate != today) {
+      await prefs.setString(_kDate, today);
+      await prefs.setInt(_kCount, 0);
+      return 0;
+    }
+    return prefs.getInt(_kCount) ?? 0;
+  }
+
+  static Future<void> increment() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = _todayKey(DateTime.now());
+
+    final savedDate = prefs.getString(_kDate);
+    if (savedDate != today) {
+      await prefs.setString(_kDate, today);
+      await prefs.setInt(_kCount, 1);
+      return;
+    }
+    final cur = prefs.getInt(_kCount) ?? 0;
+    await prefs.setInt(_kCount, cur + 1);
   }
 }

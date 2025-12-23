@@ -31,6 +31,12 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # ✅ 리워드 광고(AI용)
+  google_mobile_ads: ^5.1.0
+
+  # ✅ 로컬 저장(하루 3회 제한)
+  shared_preferences: ^2.3.2
+
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -41,8 +47,6 @@ dependencies:
   sqlite3_flutter_libs: ^0.5.20
   path_provider: ^2.1.2
   path: ^1.8.3
-
-  shared_preferences: ^2.2.3
 
 
 dev_dependencies:
