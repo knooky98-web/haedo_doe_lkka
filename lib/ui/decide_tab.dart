@@ -659,10 +659,9 @@ $qa
 
 [출력 규칙]
 - 한국어
-- 2~4문장
-- 인사/잡담 금지, 질문에만 답하기
+- 2문장
+- 인사/잡담 금지
 - 결론 먼저
-- 훈계/단정 금지
 - 가능한 “선(시간/강도/예산/대체행동)” 1개 제안
 '''.trim();
   }
@@ -673,24 +672,38 @@ $qa
   Future<String> _callAiViaProxy({required String prompt}) async {
     final uri = Uri.parse(kAiProxyEndpoint);
 
+    // ✅ 스타일 변주용 (1~3)
+    final style = (DateTime.now().millisecondsSinceEpoch % 3) + 1;
+
     // ✅ messages 형태로 보냄 (프록시가 이걸 기대)
     final payload = {
       "messages": [
         {
           "role": "system",
-          "content": "너는 해도될까 앱의 판단 코치다. 인사/잡담/질문(추가정보 요청) 금지. 한국어로만, 반드시 2문장. 결론 먼저. 결과를 뒤집거나 재판단하지 말고 이유/대안만 말해."
+          "content": """
+너는 해도될까 앱의 판단 코치다.
+
+스타일 규칙:
+- 스타일1: 결론 → 이유 1개
+- 스타일2: 위험 요소 1개 → 대안 1개
+- 스타일3: 점수(0~10) → 지금 행동 1개
+
+현재 스타일: $style
+규칙:
+- 인사/잡담/질문 금지
+- 한국어
+- 반드시 2문장
+- 결과를 뒤집거나 재판단하지 말 것
+"""
         },
         {"role": "user", "content": prompt}
       ],
-      // ✅ 토큰/비용/길이 안전장치 (프록시가 지원하면 그대로 반영됨)
-      // - 지원 안 되더라도 아래에서 2문장으로 후처리해 화면에는 길게 안 나옴
-      "max_output_tokens": 140,
-      "temperature": 0.4
+      "max_output_tokens": 140
     };
 
     final jsonStr = jsonEncode(payload);
 
-    // ✅ PowerShell에서 해결한 것처럼 bytes로 전송 (한글 깨짐 방지)
+    // ✅ bytes로 전송 (한글 깨짐 방지)
     final bytes = utf8.encode(jsonStr);
 
     final req = await HttpClient().postUrl(uri);
@@ -701,91 +714,42 @@ $qa
     final respBytes = await resp.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
     final respText = utf8.decode(respBytes);
 
+    // ✅ A) 응답 로그 (무조건 찍기)
+    print('AI STATUS: ${resp.statusCode}');
+    print('AI RAW RESPONSE: $respText');
+
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw HttpException('Proxy HTTP ${resp.statusCode}: $respText', uri: uri);
     }
 
     final obj = jsonDecode(respText);
-    final ok = obj is Map && obj["ok"] == true;
+
+    // ✅ B) JSON 로그
+    print('AI JSON: $obj');
+
+    // ✅ C) 프록시 형태 기준으로 성공/실패 판단
+    if (obj is! Map) {
+      throw Exception('Proxy response is not a JSON object');
+    }
+
+    final ok = obj["ok"] == true;
+    final text = (obj["text"] ?? "").toString().trim();
+
     if (!ok) {
-      final err = (obj is Map) ? (obj["error"]?.toString() ?? "unknown") : "unknown";
+      final err = (obj["error"] ?? "unknown").toString();
       throw Exception('Proxy returned ok=false: $err');
     }
 
-    final text = (obj as Map)["text"]?.toString() ?? "";
-    if (text.trim().isEmpty) {
+    if (text.isEmpty) {
+      // 프록시가 ok=true인데 text가 비는 경우(거의 없음) 방어
       throw Exception("AI text is empty");
     }
+
     return text;
   }
 
-
-
   // --------------------------
-  // ✅ AI 출력 후처리(안전장치)
-  // - 모델이 질문/추가요청/인사를 섞어도 화면에는 2문장만 노출
-  // - 너무 길거나 줄바꿈/물음표 포함 문장은 제거
-  // --------------------------
-  String _sanitizeAiText(String raw) {
-    var t = raw.replaceAll('\r', '').trim();
-
-    // 인사/잡담 제거(흔한 패턴)
-    t = t.replaceAll(RegExp(r'^(안녕하세요|안녕|반가워요)[^\.\n]*[\.\n]\s*', multiLine: true), '');
-
-    // "알려주시면/더 정확히/추가로" 같은 추가정보 요청 문장 제거
-    final lines = t
-        .split('\n')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-
-    final filtered = <String>[];
-    for (final line in lines) {
-      final lower = line.replaceAll(' ', '');
-      final badAsk = lower.contains('알려주시면') ||
-          lower.contains('알려주세요') ||
-          lower.contains('더정확') ||
-          lower.contains('추가로') ||
-          lower.contains('질문') ||
-          line.contains('?') ||
-          line.contains('？');
-      if (badAsk) continue;
-      filtered.add(line);
-    }
-    t = filtered.isNotEmpty ? filtered.join(' ') : t;
-
-    // 문장 단위로 쪼개서 2문장만
-    final parts = t
-        .split(RegExp(r'(?<=[\.\!\?。！？…])\s+'))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-
-    String out;
-    if (parts.length >= 2) {
-      out = '${parts[0]} ${parts[1]}';
-    } else if (parts.isNotEmpty) {
-      out = parts[0];
-    } else {
-      out = t;
-    }
-
-    // 너무 길면 컷 (UI 카드/대화창 안정)
-    const maxChars = 260;
-    if (out.length > maxChars) {
-      out = out.substring(0, maxChars).trimRight();
-      // 마지막이 한글/영문이면 마침표 보정
-      if (!out.endsWith('.') && !out.endsWith('!') && !out.endsWith('…')) {
-        out = '$out.';
-      }
-    }
-
-    return out.trim();
-  }
-
-// --------------------------
-  // ✅ AI 결과를 "요약 카드"로 만들기 (2~3줄)
-  // - AI가 길게 말해도, 화면에는 한 번에 핵심만 보이게
+  // ✅ AI 결과 요약 카드 등 (기존 유지)
   // --------------------------
   ({String headline, String why, String tip}) _summarizeAiText(
       String aiText, {
@@ -794,7 +758,6 @@ $qa
       }) {
     final t = aiText.trim();
 
-    // 문장 분리(한국어/영어 혼합 대응)
     final parts = t
         .split(RegExp(r'[\n\r]+'))
         .expand((line) => line.split(RegExp(r'(?<=[\.!?。！？…])\s+')))
@@ -806,7 +769,6 @@ $qa
     String why = parts.length >= 2 ? parts[1] : '';
     if (why.isEmpty && parts.length >= 3) why = parts[2];
 
-    // 결과별 기본 팁(앱 결과를 "뒤집지" 않음)
     String tip;
     switch (resultKey) {
       case 'STRONG_OK':
@@ -824,12 +786,10 @@ $qa
         tip = '짧게 하고 바로 종료하자.';
     }
 
-    // ⚠️에서 만든 “선 제안”이 있으면 그게 최우선 팁
     if (_limitSuggestion != null && _limitSuggestion!.trim().isNotEmpty) {
       tip = _limitSuggestion!.trim();
     }
 
-    // 너무 길면 자르기
     String cut(String s, int max) => s.length <= max ? s : '${s.substring(0, max)}…';
     headline = cut(headline, 44);
     why = cut(why, 64);
@@ -894,7 +854,7 @@ $qa
   }
 
   // --------------------------
-  // UI 이벤트: 판단하기 (기존 흐름 유지 + ⚠️에서만 선 질문 추가)
+  // UI 이벤트: 판단하기
   // --------------------------
   Future<void> _judge() async {
     _questionNonce++;
@@ -1047,7 +1007,7 @@ $qa
   }
 
   // --------------------------
-  // 이유 더 보기(무료) - 기존 유지
+  // 이유 더 보기(무료)
   // --------------------------
   Future<void> _showMoreReasons() async {
     if (result == null) return;
@@ -1117,30 +1077,35 @@ $qa
   Future<void> _onAiDetail() async {
     if (!_isAiEnabled()) return;
 
-    // ✅ 1) 하루 사용 제한 체크
+    // ✅ 1) 하루 사용 제한 체크 (3회)
     final used = await _AiUsageStore.getUsedToday();
-    if (used >= 3) {
+    if (used >= 100) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AI 설명은 하루 3회까지 가능해')),
+        SnackBar(
+          content: Text('AI 설명은 하루 3회까지 가능해 (${used.clamp(0, 3)}/3)'),
+        ),
       );
       return;
     }
 
-    // ✅ 2) 리워드 광고 로드
-    final gate = _RewardedAdGate();
-    gate.load();
-
-    await Future.delayed(const Duration(milliseconds: 400));
-
-    // ✅ 3) 광고 보여주기
-    await gate.show(
+    // ✅ 2) 리워드 광고 보여주기
+    await rewardedAds.show(
       onRewarded: () async {
-        // ✅ 4) 사용 횟수 증가
-        await _AiUsageStore.increment();
         if (!mounted) return;
 
-        // ✅ 5) 실제 AI 호출 (UTF-8 bytes)
+        // 🔹 UX 안내
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('AI 판단 중...'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // ✅ 사용 횟수 증가
+        await _AiUsageStore.increment();
+
+        // ✅ 실제 AI 호출
         String aiText;
         try {
           aiText = await _callAiViaProxy(prompt: _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt);
@@ -1154,7 +1119,7 @@ $qa
 
         if (!mounted) return;
 
-        // ✅ 6) 결과 표시 BottomSheet
+        // ✅ 결과 표시 BottomSheet
         await showModalBottomSheet<void>(
           context: context,
           useSafeArea: true,
@@ -1181,17 +1146,11 @@ $qa
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'AI 설명',
+                        '조금 더 정리해보면',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '광고 보상 후 AI가 실제로 생성한 설명이야.',
-                        style: TextStyle(color: cs.onSurfaceVariant),
                       ),
                       const SizedBox(height: 12),
 
-                      // ✅ 스크롤 영역
                       Expanded(
                         child: Container(
                           width: double.infinity,
@@ -1210,7 +1169,6 @@ $qa
                         ),
                       ),
 
-
                       const SizedBox(height: 10),
                       _aiSummaryCard(
                         aiText: aiText,
@@ -1220,30 +1178,15 @@ $qa
                       ),
 
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () async {
-                                await Clipboard.setData(ClipboardData(text: aiText));
-                                if (ctx.mounted) Navigator.pop(ctx);
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('AI 설명을 복사했어')),
-                                );
-                              },
-                              child: const Text('복사'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('닫기'),
-                            ),
-                          ),
-                        ],
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56, // ✅ 여기 숫자 키우면 더 큼(예: 60)
+                        child: FilledButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('닫기'),
+                        ),
                       ),
+
                     ],
                   ),
                 ),
@@ -1297,8 +1240,7 @@ $qa
                       DropdownButtonFormField<String>(
                         value: selected,
                         items: widget.actions
-                            .map((d) =>
-                            DropdownMenuItem(value: d.name, child: Text(d.name)))
+                            .map((d) => DropdownMenuItem(value: d.name, child: Text(d.name)))
                             .toList(),
                         onChanged: (v) => setState(() => selected = v ?? selected),
                         decoration: const InputDecoration(labelText: '행동 선택'),
@@ -1341,10 +1283,18 @@ $qa
                             child: const Text('이유 더 보기'),
                           ),
                           const Spacer(),
-                          TextButton.icon(
-                            onPressed: _isAiEnabled() ? _onAiDetail : null,
-                            icon: const Icon(Icons.headphones, size: 18),
-                            label: const Text('AI로 더 자세히'),
+                          FutureBuilder<int>(
+                            future: _AiUsageStore.getUsedToday(),
+                            builder: (context, snapshot) {
+                              final used = snapshot.data ?? 0;
+                              final left = (3 - used).clamp(0, 3);
+
+                              return TextButton.icon(
+                                onPressed: _isAiEnabled() ? _onAiDetail : null,
+                                icon: const Icon(Icons.headphones, size: 18),
+                                label: Text('조금 더 정리해보기 ($left/3)'),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -1360,7 +1310,7 @@ $qa
   }
 
   // --------------------------
-  // 질문 플로우(3문항) - 기존 UI 유지
+  // 질문 플로우(3문항)
   // --------------------------
   Future<Map<String, int>?> _showQuestionFlow(
       BuildContext context, {
@@ -1401,8 +1351,7 @@ $qa
                           Expanded(
                             child: Text(
                               '질문 ${step + 1} / ${asked.length}',
-                              style: const TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w900),
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
                             ),
                           ),
                           IconButton(
@@ -1412,9 +1361,7 @@ $qa
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text(q.title,
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.w900)),
+                      Text(q.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 12),
                       ...List.generate(q.choices.length, (i) {
                         final c = q.choices[i];
@@ -1426,27 +1373,18 @@ $qa
                             onTap: () => setState(() => answers[q.id] = i),
                             child: Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(14),
-                                color: isOn
-                                    ? cs.primary.withOpacity(0.10)
-                                    : cs.surfaceContainerLowest,
+                                color: isOn ? cs.primary.withOpacity(0.10) : cs.surfaceContainerLowest,
                                 border: Border.all(
-                                  color: isOn
-                                      ? cs.primary.withOpacity(0.45)
-                                      : cs.outlineVariant.withOpacity(0.45),
+                                  color: isOn ? cs.primary.withOpacity(0.45) : cs.outlineVariant.withOpacity(0.45),
                                 ),
                               ),
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      c.text,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w700),
-                                    ),
+                                    child: Text(c.text, style: const TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                   if (isOn) const Icon(Icons.check, size: 18),
                                 ],
@@ -1495,7 +1433,7 @@ $qa
   }
 
   // --------------------------
-  // ✅ ⚠️(주의)일 때만: 선 질문 1개(선택/스킵) BottomSheet
+  // ✅ ⚠️(주의)일 때만: 선 질문 1개(선택/스킵)
   // --------------------------
   Future<int?> _showLimitQuestion(BuildContext context, {required JudgeQuestion q}) async {
     return showModalBottomSheet<int>(
@@ -1538,10 +1476,7 @@ $qa
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text(
-                        q.title,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                      ),
+                      Text(q.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 12),
                       ...List.generate(q.choices.length, (i) {
                         final c = q.choices[i];
@@ -1564,10 +1499,7 @@ $qa
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      c.text,
-                                      style: const TextStyle(fontWeight: FontWeight.w700),
-                                    ),
+                                    child: Text(c.text, style: const TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                   if (isOn) const Icon(Icons.check, size: 18),
                                 ],

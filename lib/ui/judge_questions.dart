@@ -958,20 +958,20 @@ List<JudgeQuestion> semiQuestions({
   return [...common, ...(byTag[tag] ?? balance)];
 }
 
-List<JudgeQuestion> buildQuestionPool({required String action, required ActionKind kind, required List<LogItem> logs}) {
-  final now = DateTime.now();
-  final isWeekend =
-      now.weekday == DateTime.saturday || now.weekday == DateTime.sunday;
-  final hour = now.hour;
+  List<JudgeQuestion> buildQuestionPool({required String action, required ActionKind kind, required List<LogItem> logs}) {
+    final now = DateTime.now();
+    final isWeekend =
+        now.weekday == DateTime.saturday || now.weekday == DateTime.sunday;
+    final hour = now.hour;
 
-  final stat = patternOf(logs, action);
-  String freqText;
-  if (stat.cnt5 == 0) {
-    freqText = '최근 5일간 0회';
-  } else {
-    freqText = '최근 5일간 ${stat.cnt5}회';
-  }
-  final gapText = stat.lastAt == null
+    final stat = patternOf(logs, action);
+    String freqText;
+    if (stat.cnt5 == 0) {
+      freqText = '최근 5일간 0회';
+    } else {
+      freqText = '최근 5일간 ${stat.cnt5}회';
+    }
+    final gapText = stat.lastAt == null
       ? '최근 기록 없음'
       : '마지막이 ${stat.hoursSinceLast}시간 전';
   final isNight = hour >= 22 || hour <= 3;
@@ -3061,11 +3061,213 @@ List<JudgeQuestion> buildQuestionPool({required String action, required ActionKi
   // ✅ 태그 판정(구매/지출일 때만 money 질문 허용)
   // (위에서 계산한 tag 재사용)
 
-// extraBase 안의 base3_money는 (spend/purchase)일 때만 유지
+  // extraBase 안의 base3_money는 (spend/purchase)일 때만 유지
   final allowMoney = (tag == 'spend' || tag == 'purchase');
   final extraBaseFiltered = allowMoney
-  ? extraBase
+      ? extraBase
       : extraBase.where((q) => q.group != 'base3_money').toList();
 
-// ✅ 최종 풀 반환
-  return [...base, ...kindSet, ...extraBaseFiltered, ...actionSpecific];}
+  // ✅ (추가) 장기목표(goal) 질문은 일부 행동에서만
+  final allowGoal =
+      tag == 'selfcare' ||
+          tag == 'purchase' ||
+          tag == 'spend' ||
+          tag == 'binge' ||
+          tag == 'alcohol' ||
+          tag == 'caffeine' ||
+          tag == 'smoke' ||
+          tag == 'game' ||
+          tag == 'study' ||
+          tag == 'workout';
+
+  // ✅ base3_goal 질문들 (별도 리스트)
+  final goalQuestions = <JudgeQuestion>[
+    JudgeQuestion(
+      id: 'base3_goal_01',
+      group: 'base3_goal',
+      title: '이 선택이 장기 목표(커리어/건강/재정)에 실제로 도움이 될까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('목표와 어긋난다', -7),
+        Choice('애매', 0),
+        Choice('목표에 도움이 된다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_02',
+      group: 'base3_goal',
+      title: '‘미래의 나’가 돌아봤을 때 고마워할 선택일까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('아닐 것 같다', -7),
+        Choice('애매', 0),
+        Choice('그럴 것 같다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_03',
+      group: 'base3_goal',
+      title: '일주일 뒤에 다시 봐도 의미 있다고 느낄 선택일까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('의미 없을 것 같다', -7),
+        Choice('애매', 0),
+        Choice('의미 있을 것 같다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_04',
+      group: 'base3_goal',
+      title: '이 선택이 지금 내가 가려는 방향과 잘 맞을까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('맞지 않는다', -7),
+        Choice('애매', 0),
+        Choice('잘 맞는다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_05',
+      group: 'base3_goal',
+      title: '이걸 하면 목표에 가까워지는 행동을 하나 포기하게 될까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('포기하게 될 것 같다', -7),
+        Choice('애매', 0),
+        Choice('그렇지 않을 것 같다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_06',
+      group: 'base3_goal',
+      title: '이 선택이 내가 되고 싶은 사람(정체성)과 어울릴까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('어울리지 않는다', -7),
+        Choice('애매', 0),
+        Choice('잘 어울린다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_07',
+      group: 'base3_goal',
+      title: '이건 단기 쾌감에 더 가깝나, 장기 성과에 더 가깝나?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('단기 쾌감에 가깝다', -7),
+        Choice('애매', 0),
+        Choice('장기 성과에 가깝다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_08',
+      group: 'base3_goal',
+      title: '장기적으로 시간/돈/건강 비용이 커질 가능성이 있을까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('그럴 가능성 크다', -7),
+        Choice('애매', 0),
+        Choice('그렇지 않다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_09',
+      group: 'base3_goal',
+      title: '이 행동이 ‘좋은 방향의 작은 습관’으로 이어질 가능성이 있을까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('가능성 낮다', -7),
+        Choice('애매', 0),
+        Choice('가능성 있다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_11',
+      group: 'base3_goal',
+      title: '이 행동 뒤에 목표로 이어지는 ‘다음 한 걸음’을 연결할 수 있을까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('연결하기 어렵다', -7),
+        Choice('애매', 0),
+        Choice('연결할 수 있다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_12',
+      group: 'base3_goal',
+      title: '이 선택이 내 가치(가족/성장/자유 등)와 충돌하지 않을까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('충돌할 것 같다', -7),
+        Choice('애매', 0),
+        Choice('충돌하지 않는다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_13',
+      group: 'base3_goal',
+      title: '이 선택이 평판/신뢰를 쌓는 쪽에 더 가까울까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('아니다', -7),
+        Choice('애매', 0),
+        Choice('그렇다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_14',
+      group: 'base3_goal',
+      title: '이 행동이 나를 분산시키나, 목표에 더 집중하게 하나?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('분산시키는 편이다', -7),
+        Choice('애매', 0),
+        Choice('집중하게 하는 편이다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_15',
+      group: 'base3_goal',
+      title: '오늘의 선택이 1년 누적되면, 나는 목표에 더 가까워질까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('아닐 것 같다', -7),
+        Choice('애매', 0),
+        Choice('그럴 것 같다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_17',
+      group: 'base3_goal',
+      title: '이 행동을 목표에 맞게 ‘작게/깊게’ 조정해서 도움이 되게 만들 수 있을까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('조정하기 어렵다', -7),
+        Choice('애매', 0),
+        Choice('조정할 수 있다', 7),
+      ],
+    ),
+    JudgeQuestion(
+      id: 'base3_goal_18',
+      group: 'base3_goal',
+      title: '이 행동을 하더라도 목표를 지키는 안전장치를 넣을 수 있을까?',
+      tags: const ['selfcare', 'purchase', 'spend', 'binge', 'alcohol', 'caffeine', 'smoke', 'game', 'study', 'workout'],
+      choices: const [
+        Choice('넣기 어렵다', -7),
+        Choice('애매', 0),
+        Choice('넣을 수 있다', 7),
+      ],
+    ),
+  ];
+
+  final goalQuestionsFiltered = allowGoal ? goalQuestions : const <JudgeQuestion>[];
+
+  // ✅ 최종 풀 반환
+  return [
+    ...base,
+    ...kindSet,
+    ...extraBaseFiltered,
+    ...actionSpecific,
+    if (allowGoal) ...goalQuestions,
+  ];}
+

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
+import 'ads/rewarded_ad_service.dart';
+
 
 /// =======================
 /// 공용 모델/유틸
@@ -770,6 +772,8 @@ LevelProgress calcLevelProgress(int totalExp) {
 // =====================================================
 // Rewarded Ad Gate (광고 → 보상 → AI 허용)
 // =====================================================
+final rewardedAds = RewardedAdService(); // ✅ 앱 전체에서 하나만 쓰는 광고 서비스
+
 /*class RewardedGate {
   RewardedAd? _ad;
   bool _loading = false;
