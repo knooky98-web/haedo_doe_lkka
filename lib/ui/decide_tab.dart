@@ -644,9 +644,9 @@ class _DecideTabState extends State<DecideTab> {
         : '';
 
     return '''
-너는 “해도될까” 앱의 조언자야.
+너는 “해도될까” 앱의 판단 코치야.
 중요: 결과(STRONG_OK/OK/MAYBE/NO/STRONG_NO)는 이미 앱이 결정했으니, 절대 결과를 뒤집거나 다시 판단하지 마.
-너의 역할은 사용자가 납득할 수 있도록 “이유 설명”만 2~4문장으로 짧게 해주는 것.
+규칙: 인사/잡담/추가 질문(정보 요청) 금지. 한국어로만. 반드시 **딱 2문장**. 결론 먼저, 그 다음 한 문장으로 이유/대안을 말해.
 
 [상황]
 - 행동: $action
@@ -678,11 +678,14 @@ $qa
       "messages": [
         {
           "role": "system",
-          "content":
-          "너는 해도될까 앱의 판단 코치다. 반드시 질문에만 답하고 인사/잡담 금지. 한국어로 2~4문장. 결론 먼저."
+          "content": "너는 해도될까 앱의 판단 코치다. 인사/잡담/질문(추가정보 요청) 금지. 한국어로만, 반드시 2문장. 결론 먼저. 결과를 뒤집거나 재판단하지 말고 이유/대안만 말해."
         },
         {"role": "user", "content": prompt}
-      ]
+      ],
+      // ✅ 토큰/비용/길이 안전장치 (프록시가 지원하면 그대로 반영됨)
+      // - 지원 안 되더라도 아래에서 2문장으로 후처리해 화면에는 길게 안 나옴
+      "max_output_tokens": 140,
+      "temperature": 0.4
     };
 
     final jsonStr = jsonEncode(payload);
@@ -717,7 +720,70 @@ $qa
   }
 
 
+
   // --------------------------
+  // ✅ AI 출력 후처리(안전장치)
+  // - 모델이 질문/추가요청/인사를 섞어도 화면에는 2문장만 노출
+  // - 너무 길거나 줄바꿈/물음표 포함 문장은 제거
+  // --------------------------
+  String _sanitizeAiText(String raw) {
+    var t = raw.replaceAll('\r', '').trim();
+
+    // 인사/잡담 제거(흔한 패턴)
+    t = t.replaceAll(RegExp(r'^(안녕하세요|안녕|반가워요)[^\.\n]*[\.\n]\s*', multiLine: true), '');
+
+    // "알려주시면/더 정확히/추가로" 같은 추가정보 요청 문장 제거
+    final lines = t
+        .split('\n')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final filtered = <String>[];
+    for (final line in lines) {
+      final lower = line.replaceAll(' ', '');
+      final badAsk = lower.contains('알려주시면') ||
+          lower.contains('알려주세요') ||
+          lower.contains('더정확') ||
+          lower.contains('추가로') ||
+          lower.contains('질문') ||
+          line.contains('?') ||
+          line.contains('？');
+      if (badAsk) continue;
+      filtered.add(line);
+    }
+    t = filtered.isNotEmpty ? filtered.join(' ') : t;
+
+    // 문장 단위로 쪼개서 2문장만
+    final parts = t
+        .split(RegExp(r'(?<=[\.\!\?。！？…])\s+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    String out;
+    if (parts.length >= 2) {
+      out = '${parts[0]} ${parts[1]}';
+    } else if (parts.isNotEmpty) {
+      out = parts[0];
+    } else {
+      out = t;
+    }
+
+    // 너무 길면 컷 (UI 카드/대화창 안정)
+    const maxChars = 260;
+    if (out.length > maxChars) {
+      out = out.substring(0, maxChars).trimRight();
+      // 마지막이 한글/영문이면 마침표 보정
+      if (!out.endsWith('.') && !out.endsWith('!') && !out.endsWith('…')) {
+        out = '$out.';
+      }
+    }
+
+    return out.trim();
+  }
+
+// --------------------------
   // ✅ AI 결과를 "요약 카드"로 만들기 (2~3줄)
   // - AI가 길게 말해도, 화면에는 한 번에 핵심만 보이게
   // --------------------------
