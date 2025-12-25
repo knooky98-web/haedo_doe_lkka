@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'dart:io';
 
 import '../core.dart';
 
@@ -14,16 +16,21 @@ import 'judge_logic.dart';
 /// 2) 해도될까 탭 (질문 기반 판단 시스템 v2 - 5단계)
 /// - ✅ UI/배치/동작은 기존 그대로 유지
 /// - ✅ 판단하기 → "질문 3개"만 랜덤 노출
-/// - ✅ 질문 풀은 30개+
 /// - ✅ 결과는 5단계:
 ///    🔥 STRONG_OK / ⭕ OK / ⚠️ MAYBE(주의) / 🟡 NO / ❌ STRONG_NO
 /// - ✅ ⚠️(주의)일 때만:
 ///    - 추가 질문 1개(선택, 스킵 가능)
 ///    - “선(시간/예산)” 자동 제안 문구 생성
 ///    - reason2 / 이유더보기 / AI 프롬프트에 반영
-/// - ✅ AdMob 붙일 때:
-///    - 광고 성공 콜백에서 _aiPrompt 대신 실제 호출만 꽂으면 됨(구조 유지)
+/// - ✅ AdMob 리워드 광고 이후:
+///    - ✅ Cloud Run 프록시로 실제 AI 호출해서 결과(text) 표시
+///    - ✅ PowerShell에서 해결한 UTF-8(바이트) 방식 그대로 적용
 /// =======================
+
+/// ✅ 여기에 너 Cloud Run 엔드포인트 넣어줘 (끝에 /ai 포함!)
+/// 예) https://ai-proxy-xxxx.asia-northeast3.run.app/ai
+const String kAiProxyEndpoint =
+    'https://ai-proxy-872620969778.asia-northeast3.run.app/ai';
 
 class DecideTab extends StatefulWidget {
   final List<ActionDef> actions;
@@ -73,14 +80,12 @@ class _DecideTabState extends State<DecideTab> {
 
   // AI 프롬프트(리워드 광고 이후에 실제 호출할 텍스트)
   String _aiPrompt = '';
+
   double _sheetBottomPad(BuildContext ctx) {
     final mq = MediaQuery.of(ctx);
     return 16 + mq.padding.bottom + kBottomNavigationBarHeight + 12;
   }
-  
-  // --------------------------
-  // 최근 패턴 계산 (최근 3일/5일, 마지막 기록 간격)
-  // --------------------------
+
   // ==========================
   // ✅ 커스텀 행동 "준-기본" 승격 + 태그 기반 전용 질문
   // - 서버 없이 logs로 자동 판단
@@ -125,13 +130,7 @@ class _DecideTabState extends State<DecideTab> {
     return patternOf(widget.logs, action);
   }
 
-
   // --------------------------
-  // 2) 질문 3개 뽑기 (기존 UX 유지)
-  // --------------------------
-
-
-// --------------------------
   // 3) 결과 계산 (5단계)
   // --------------------------
   JudgeOut _computeJudge({
@@ -159,8 +158,6 @@ class _DecideTabState extends State<DecideTab> {
     }
 
     // ✅ 패턴 점수(최근 5일/3일 + 마지막 간격)
-    // - BAD라도 최근에 거의 안 했고(5일 0~1회) 마지막이 오래됐으면 OK가 나오게 만든다.
-    // - 반대로 연속/빈번/간격이 짧으면 강하게 낮춘다.
     int pat = 0;
 
     // 빈도(최근 5일)
@@ -176,7 +173,7 @@ class _DecideTabState extends State<DecideTab> {
       pat += -8;
     }
 
-    // 최근 3일 쏠림(짧은 창에서 반복되면 더 위험)
+    // 최근 3일 쏠림
     if (stat.cnt3 >= 3) pat += -8;
     if (stat.cnt3 == 2) pat += -4;
 
@@ -196,27 +193,24 @@ class _DecideTabState extends State<DecideTab> {
       pat += -6;
     }
 
-    // 연속일(스트릭) — 같은 행동이 연속이면 과열로 판단
+    // 연속일(스트릭)
     if (stat.streak >= 4) pat += -10;
     if (stat.streak == 3) pat += -6;
     if (stat.streak == 2) pat += -3;
 
-    // kind별 보정(같은 패턴도 GOOD/BAD 해석을 다르게)
+    // kind별 보정
     switch (kind) {
       case ActionKind.good:
-        // GOOD은 “너무 안 하는 것도 아쉬움” → 패턴의 긍정 가중을 조금 줄임
         pat = (pat * 0.7).round();
         break;
       case ActionKind.neutral:
         pat = (pat * 0.9).round();
         break;
       case ActionKind.bad:
-        // BAD는 패턴이 핵심이라 그대로 반영
         break;
     }
 
     score += pat;
-
 
     // 질문 점수 합산
     for (final q in asked) {
@@ -258,7 +252,6 @@ class _DecideTabState extends State<DecideTab> {
       w['STRONG_OK'] = max(3, w['STRONG_OK']! - 6);
       w['OK'] = max(5, w['OK']! - 4);
     } else {
-      // 중심부는 MAYBE 약간 강화
       w['MAYBE'] = w['MAYBE']! + 6;
     }
 
@@ -289,7 +282,6 @@ class _DecideTabState extends State<DecideTab> {
   // ✅ ⚠️(주의)일 때만: “선 질문 1개(선택)” + 자동 제안 생성
   // --------------------------
   JudgeQuestion _buildLimitQuestion({required String action}) {
-    // 구매는 "예산" 중심, 나머지는 "시간/강도" 중심
     if (action == '구매') {
       return const JudgeQuestion(
         id: 'limit_buy',
@@ -335,7 +327,6 @@ class _DecideTabState extends State<DecideTab> {
       );
     }
 
-    // 그 외 공통
     return const JudgeQuestion(
       id: 'limit_general',
       title: '⚠️ 주의 모드야. “선(시간/강도)”을 정하면 더 안전해. 어느 쪽이 좋아?',
@@ -354,7 +345,6 @@ class _DecideTabState extends State<DecideTab> {
   }) {
     final c = q.choices[choiceIdx].text;
 
-    // 문구는 “제안” 톤으로, 짧게 고정
     if (action == '구매') {
       if (c.contains('예산')) return '선 추천: 오늘은 “예산 안”에서만 구매하기.';
       if (c.contains('필요 1개')) return '선 추천: 오늘은 “필요한 것 1개만” 사고 종료하기.';
@@ -383,7 +373,6 @@ class _DecideTabState extends State<DecideTab> {
       return '선 추천: 대체 플랜을 1개 정하고 시작하기.';
     }
 
-    // 공통
     if (c.contains('20분')) return '선 추천: “20분만” 하고 종료.';
     if (c.contains('30~60')) return '선 추천: “30~60분” 상한선 걸기.';
     if (c.contains('할 일 1개')) return '선 추천: 끝나고 “할 일 1개”까지 세트로.';
@@ -403,26 +392,22 @@ class _DecideTabState extends State<DecideTab> {
   // --------------------------
   // 4) 이유 템플릿 생성(무료 2단계) - 5단계 반영
   // --------------------------
-    List<String> _buildReasons({
+  List<String> _buildReasons({
     required String result,
     required String action,
     required ActionKind kind,
     required int score,
     required List<JudgeQuestion> asked,
     required Map<String, int> answers,
-    String? limitSuggestion, // ✅ 추가
+    String? limitSuggestion,
   }) {
     final now = DateTime.now();
     final hour = now.hour;
 
-    // ✅ 결과 멘트는 "랜덤"이 아니라, 결과(5단계) + 컨텍스트(시간/종류)에 따라 자연스럽게 변하게
     final seed = now.millisecondsSinceEpoch ^ action.hashCode ^ (score * 9973);
     final r = Random(seed);
     String pick(List<String> xs) => xs.isEmpty ? '' : xs[r.nextInt(xs.length)];
 
-    // --------------------------
-    // 1) 1줄 멘트(헤드라인) 풀
-    // --------------------------
     final headStrongOk = <String>[
       '가자. “$action”은 지금 딱 좋아.',
       '좋아. 지금은 “$action”이 플러스야.',
@@ -478,9 +463,6 @@ class _DecideTabState extends State<DecideTab> {
       '강하게 말할게. 오늘은 하지 마.',
     ];
 
-    // --------------------------
-    // 2) 2~3문장 이유(설명) 풀
-    // --------------------------
     final lateNight = (hour >= 22 || hour <= 3);
 
     List<String> bodyStrongOk() {
@@ -575,9 +557,6 @@ class _DecideTabState extends State<DecideTab> {
       return base;
     }
 
-    // --------------------------
-    // 3) 결과별 선택
-    // --------------------------
     String head;
     String body;
 
@@ -604,14 +583,10 @@ class _DecideTabState extends State<DecideTab> {
         break;
     }
 
-    // ✅ “선(시간/예산)” 제안이 있으면 MAYBE에서 자연스럽게 붙여준다 (UI는 그대로)
     if (result == 'MAYBE' && limitSuggestion != null && limitSuggestion.isNotEmpty) {
       body = '$body\n\n• 추천 선: $limitSuggestion';
     }
 
-    // --------------------------
-    // 4) 이유 더보기(확장 풀) - 기존 구조 유지, 문구만 확장
-    // --------------------------
     final picks = asked.map((q) {
       final idx = answers[q.id] ?? 0;
       final c = q.choices[idx].text;
@@ -632,7 +607,6 @@ class _DecideTabState extends State<DecideTab> {
 
     _moreReasons = expand;
 
-    // ✅ 최근 패턴 요약을 reason2 뒤에 붙여서 '왜 그런지' 납득되게 (기존 동작 유지)
     final stat = _patternOf(action);
     final freqText = (stat.cnt5 == 0) ? '최근 5일간 0회' : '최근 5일간 ${stat.cnt5}회';
     final gapText = stat.lastAt == null ? '최근 기록 없음' : '마지막이 ${stat.hoursSinceLast}시간 전';
@@ -651,7 +625,7 @@ class _DecideTabState extends State<DecideTab> {
     required int score,
     required List<JudgeQuestion> asked,
     required Map<String, int> answers,
-    String? limitSuggestion, // ✅ 추가
+    String? limitSuggestion,
   }) {
     final kindText = switch (kind) {
       ActionKind.good => 'GOOD(좋은 행동)',
@@ -684,22 +658,191 @@ class _DecideTabState extends State<DecideTab> {
 $qa
 
 [출력 규칙]
+- 한국어
 - 2~4문장
+- 인사/잡담 금지, 질문에만 답하기
+- 결론 먼저
 - 훈계/단정 금지
 - 가능한 “선(시간/강도/예산/대체행동)” 1개 제안
 '''.trim();
   }
 
   // --------------------------
+  // ✅ Cloud Run 프록시 호출 (UTF-8 bytes 방식)
+  // --------------------------
+  Future<String> _callAiViaProxy({required String prompt}) async {
+    final uri = Uri.parse(kAiProxyEndpoint);
+
+    // ✅ messages 형태로 보냄 (프록시가 이걸 기대)
+    final payload = {
+      "messages": [
+        {
+          "role": "system",
+          "content":
+          "너는 해도될까 앱의 판단 코치다. 반드시 질문에만 답하고 인사/잡담 금지. 한국어로 2~4문장. 결론 먼저."
+        },
+        {"role": "user", "content": prompt}
+      ]
+    };
+
+    final jsonStr = jsonEncode(payload);
+
+    // ✅ PowerShell에서 해결한 것처럼 bytes로 전송 (한글 깨짐 방지)
+    final bytes = utf8.encode(jsonStr);
+
+    final req = await HttpClient().postUrl(uri);
+    req.headers.set(HttpHeaders.contentTypeHeader, "application/json; charset=utf-8");
+    req.add(bytes);
+
+    final resp = await req.close();
+    final respBytes = await resp.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
+    final respText = utf8.decode(respBytes);
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HttpException('Proxy HTTP ${resp.statusCode}: $respText', uri: uri);
+    }
+
+    final obj = jsonDecode(respText);
+    final ok = obj is Map && obj["ok"] == true;
+    if (!ok) {
+      final err = (obj is Map) ? (obj["error"]?.toString() ?? "unknown") : "unknown";
+      throw Exception('Proxy returned ok=false: $err');
+    }
+
+    final text = (obj as Map)["text"]?.toString() ?? "";
+    if (text.trim().isEmpty) {
+      throw Exception("AI text is empty");
+    }
+    return text;
+  }
+
+
+  // --------------------------
+  // ✅ AI 결과를 "요약 카드"로 만들기 (2~3줄)
+  // - AI가 길게 말해도, 화면에는 한 번에 핵심만 보이게
+  // --------------------------
+  ({String headline, String why, String tip}) _summarizeAiText(
+      String aiText, {
+        required String action,
+        required String resultKey,
+      }) {
+    final t = aiText.trim();
+
+    // 문장 분리(한국어/영어 혼합 대응)
+    final parts = t
+        .split(RegExp(r'[\n\r]+'))
+        .expand((line) => line.split(RegExp(r'(?<=[\.!?。！？…])\s+')))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    String headline = parts.isNotEmpty ? parts[0] : t;
+    String why = parts.length >= 2 ? parts[1] : '';
+    if (why.isEmpty && parts.length >= 3) why = parts[2];
+
+    // 결과별 기본 팁(앱 결과를 "뒤집지" 않음)
+    String tip;
+    switch (resultKey) {
+      case 'STRONG_OK':
+      case 'OK':
+        tip = '지금 하면 좋아. 다만 “끝나는 시점”만 정해.';
+        break;
+      case 'MAYBE':
+        tip = '선(시간/강도)을 정하고, 끝나면 바로 끊어.';
+        break;
+      case 'NO':
+      case 'STRONG_NO':
+        tip = '오늘은 쉬자. 내일 컨디션/목표가 더 중요해.';
+        break;
+      default:
+        tip = '짧게 하고 바로 종료하자.';
+    }
+
+    // ⚠️에서 만든 “선 제안”이 있으면 그게 최우선 팁
+    if (_limitSuggestion != null && _limitSuggestion!.trim().isNotEmpty) {
+      tip = _limitSuggestion!.trim();
+    }
+
+    // 너무 길면 자르기
+    String cut(String s, int max) => s.length <= max ? s : '${s.substring(0, max)}…';
+    headline = cut(headline, 44);
+    why = cut(why, 64);
+    tip = cut(tip, 44);
+
+    return (headline: headline, why: why, tip: tip);
+  }
+
+  Widget _aiSummaryCard({
+    required String aiText,
+    required String action,
+    required String resultKey,
+    required ThemeData theme,
+  }) {
+    final cs = theme.colorScheme;
+    final sum = _summarizeAiText(aiText, action: action, resultKey: resultKey);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '요약',
+            style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          _summaryRow('결론', sum.headline, theme),
+          const SizedBox(height: 6),
+          if (sum.why.isNotEmpty) _summaryRow('이유', sum.why, theme),
+          const SizedBox(height: 6),
+          _summaryRow('한 줄 팁', sum.tip, theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(String k, String v, ThemeData theme) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 56,
+          child: Text(
+            k,
+            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            v,
+            style: theme.textTheme.bodySmall?.copyWith(height: 1.25),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --------------------------
   // UI 이벤트: 판단하기 (기존 흐름 유지 + ⚠️에서만 선 질문 추가)
   // --------------------------
   Future<void> _judge() async {
-    _questionNonce++; // ✅ 질문 조합 다양화(누를 때마다)
+    _questionNonce++;
     final def = findDefByName(widget.actions, selected);
     final kind = def?.kind ?? ActionKind.neutral;
 
     final pool = buildQuestionPool(action: selected, kind: kind, logs: widget.logs);
-    final asked = pickQuestions(pool, action: selected, nonce: _questionNonce, recentQIdsByAction: _recentQIdsByAction, recentKeep: _recentQKeep); // ✅ 3개만
+    final asked = pickQuestions(
+      pool,
+      action: selected,
+      nonce: _questionNonce,
+      recentQIdsByAction: _recentQIdsByAction,
+      recentKeep: _recentQKeep,
+    );
 
     final res = await _showQuestionFlow(context, asked: asked);
     if (res == null) return;
@@ -713,7 +856,6 @@ $qa
       answers: answers,
     );
 
-    // ✅ 여기서 먼저 결과/이유 만든 뒤, ⚠️(주의)일 때만 “선 질문”을 추가로 물어봄(선택)
     String? limitSuggestion;
     if (out.result == 'MAYBE') {
       limitSuggestion = await _askLimitIfNeeded(context: context, action: selected);
@@ -745,7 +887,7 @@ $qa
         ..clear()
         ..addAll(answers);
 
-      _limitSuggestion = limitSuggestion; // ✅ 저장(원하면 나중에 활용 가능)
+      _limitSuggestion = limitSuggestion;
 
       result = out.result;
       reason1 = reasons[0];
@@ -804,8 +946,7 @@ $qa
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(selected,
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w900)),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 6),
                   const Text('정말 “했다”고 기록할까?'),
                   const SizedBox(height: 12),
@@ -849,7 +990,7 @@ $qa
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
-      isScrollControlled: true, // ✅ 중요
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final mq = MediaQuery.of(ctx);
@@ -858,7 +999,7 @@ $qa
         return Padding(
           padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
           child: Container(
-            constraints: BoxConstraints(maxHeight: maxH), // ✅ 높이 제한
+            constraints: BoxConstraints(maxHeight: maxH),
             decoration: BoxDecoration(
               color: cs.surface,
               borderRadius: BorderRadius.circular(20),
@@ -869,28 +1010,22 @@ $qa
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '이유 더 보기',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                  ),
+                  const Text('이유 더 보기',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 10),
-
-                  // ✅ 이유 목록만 스크롤
                   Expanded(
                     child: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: _moreReasons
                             .map((s) => Padding(
-                          padding:
-                          const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.only(bottom: 8),
                           child: Text(s),
                         ))
                             .toList(),
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 6),
                   Align(
                     alignment: Alignment.centerRight,
@@ -908,14 +1043,10 @@ $qa
     );
   }
 
-
-  bool _isAiEnabled() {
-    // ✅ 5단계 전부에서 AI 설명 허용
-    return true;
-  }
+  bool _isAiEnabled() => true;
 
   // --------------------------
-  // AI로 더 자세히(⚠️/🟡일 때만) - 기존 유지(프롬프트 복사)
+  // ✅ AI로 더 자세히 (리워드 광고 후 "실제 호출" → 결과 표시)
   // --------------------------
   Future<void> _onAiDetail() async {
     if (!_isAiEnabled()) return;
@@ -934,7 +1065,6 @@ $qa
     final gate = _RewardedAdGate();
     gate.load();
 
-    // 잠깐 대기 (로드 타임)
     await Future.delayed(const Duration(milliseconds: 400));
 
     // ✅ 3) 광고 보여주기
@@ -942,10 +1072,23 @@ $qa
       onRewarded: () async {
         // ✅ 4) 사용 횟수 증가
         await _AiUsageStore.increment();
+        if (!mounted) return;
+
+        // ✅ 5) 실제 AI 호출 (UTF-8 bytes)
+        String aiText;
+        try {
+          aiText = await _callAiViaProxy(prompt: _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt);
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('AI 호출 실패: $e')),
+          );
+          return;
+        }
 
         if (!mounted) return;
 
-        // ✅ 5) AI 설명 BottomSheet 표시
+        // ✅ 6) 결과 표시 BottomSheet
         await showModalBottomSheet<void>(
           context: context,
           useSafeArea: true,
@@ -953,9 +1096,14 @@ $qa
           backgroundColor: Colors.transparent,
           builder: (ctx) {
             final cs = Theme.of(ctx).colorScheme;
+
+            final mq = MediaQuery.of(ctx);
+            final maxH = (mq.size.height * 0.62).clamp(260.0, mq.size.height - 160);
+
             return Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
               child: Container(
+                constraints: BoxConstraints(maxHeight: maxH),
                 decoration: BoxDecoration(
                   color: cs.surface,
                   borderRadius: BorderRadius.circular(20),
@@ -964,21 +1112,20 @@ $qa
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'AI 설명',
-                        style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '아래 내용은 AI에게 전달할 설명 프롬프트야.\n'
-                            '지금은 복사해서 직접 써볼 수 있어.',
+                        '광고 보상 후 AI가 실제로 생성한 설명이야.',
                         style: TextStyle(color: cs.onSurfaceVariant),
                       ),
                       const SizedBox(height: 12),
+
+                      // ✅ 스크롤 영역
                       Expanded(
                         child: Container(
                           width: double.infinity,
@@ -986,32 +1133,37 @@ $qa
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
                             color: cs.surfaceContainerLowest,
-                            border: Border.all(
-                                color: cs.outlineVariant.withOpacity(0.45)),
+                            border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
                           ),
                           child: SingleChildScrollView(
                             child: SelectableText(
-                              _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt,
-                              style:
-                              const TextStyle(fontSize: 13, height: 1.35),
+                              aiText,
+                              style: const TextStyle(fontSize: 14, height: 1.35),
                             ),
                           ),
                         ),
                       ),
+
+
+                      const SizedBox(height: 10),
+                      _aiSummaryCard(
+                        aiText: aiText,
+                        action: selected,
+                        resultKey: result ?? 'MAYBE',
+                        theme: Theme.of(ctx),
+                      ),
+
                       const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton(
                               onPressed: () async {
-                                await Clipboard.setData(
-                                  ClipboardData(text: _aiPrompt),
-                                );
+                                await Clipboard.setData(ClipboardData(text: aiText));
                                 if (ctx.mounted) Navigator.pop(ctx);
                                 if (!mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('AI 프롬프트를 복사했어')),
+                                  const SnackBar(content: Text('AI 설명을 복사했어')),
                                 );
                               },
                               child: const Text('복사'),
@@ -1042,7 +1194,6 @@ $qa
     );
   }
 
-
   // --------------------------
   // build (UI는 기존 그대로)
   // --------------------------
@@ -1061,11 +1212,9 @@ $qa
         bottom: true,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // ✅ BottomNavigationBar(바깥 Scaffold) + 제스처바/시스템 인셋까지 고려해서
-            //   하단 영역이 겹치지 않도록 '실제 안전 여백'을 확보한다.
             final mq = MediaQuery.of(context);
-            final bottomSafe = mq.padding.bottom; // 기기별 제스처/시스템 바
-            const extra = 12.0; // 살짝 여유(눌림/가림 방지)
+            final bottomSafe = mq.padding.bottom;
+            const extra = 12.0;
             final padBottom = 16 + bottomSafe + kBottomNavigationBarHeight + extra;
 
             return SingleChildScrollView(
@@ -1074,66 +1223,66 @@ $qa
                 constraints: BoxConstraints(minHeight: constraints.maxHeight - 12),
                 child: IntrinsicHeight(
                   child: Column(
-                                            children: [
-              Text('지금 하려는 행동',
-                  style: t.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w900)),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: selected,
-                items: widget.actions
-                    .map((d) =>
-                    DropdownMenuItem(value: d.name, child: Text(d.name)))
-                    .toList(),
-                onChanged: (v) => setState(() => selected = v ?? selected),
-                decoration: const InputDecoration(labelText: '행동 선택'),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 52,
-                      child: FilledButton(
-                        onPressed: _judge,
-                        child: const Text('판단하기'),
+                    children: [
+                      Text('지금 하려는 행동',
+                          style: t.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: selected,
+                        items: widget.actions
+                            .map((d) =>
+                            DropdownMenuItem(value: d.name, child: Text(d.name)))
+                            .toList(),
+                        onChanged: (v) => setState(() => selected = v ?? selected),
+                        decoration: const InputDecoration(labelText: '행동 선택'),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    height: 52,
-                    child: FilledButton.tonal(
-                      onPressed: result == null ? null : _saveToLog,
-                      child: const Text('했다(기록)'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: _ResultCard(
-                  result: result,
-                  reason1: reason1,
-                  reason2: reason2,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: result == null ? null : _showMoreReasons,
-                    child: const Text('이유 더 보기'),
-                  ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: _isAiEnabled() ? _onAiDetail : null,
-                    icon: const Icon(Icons.headphones, size: 18),
-                    label: const Text('AI로 더 자세히'),
-                  ),
-                ],
-              ),
-            ],
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 52,
+                              child: FilledButton(
+                                onPressed: _judge,
+                                child: const Text('판단하기'),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          SizedBox(
+                            height: 52,
+                            child: FilledButton.tonal(
+                              onPressed: result == null ? null : _saveToLog,
+                              child: const Text('했다(기록)'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: _ResultCard(
+                          result: result,
+                          reason1: reason1,
+                          reason2: reason2,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: result == null ? null : _showMoreReasons,
+                            child: const Text('이유 더 보기'),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: _isAiEnabled() ? _onAiDetail : null,
+                            icon: const Icon(Icons.headphones, size: 18),
+                            label: const Text('AI로 더 자세히'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1149,7 +1298,6 @@ $qa
   // --------------------------
   Future<Map<String, int>?> _showQuestionFlow(
       BuildContext context, {
-
         required List<JudgeQuestion> asked,
       }) async {
     final answers = <String, int>{};
@@ -1297,7 +1445,6 @@ $qa
           builder: (ctx, setState) {
             return Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
-
               child: Container(
                 decoration: BoxDecoration(
                   color: cs.surface,
@@ -1315,8 +1462,7 @@ $qa
                           const Expanded(
                             child: Text(
                               '추가 질문 (선택)',
-                              style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w900),
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
                             ),
                           ),
                           IconButton(
@@ -1328,8 +1474,7 @@ $qa
                       const SizedBox(height: 6),
                       Text(
                         q.title,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w900),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                       ),
                       const SizedBox(height: 12),
                       ...List.generate(q.choices.length, (i) {
@@ -1342,17 +1487,12 @@ $qa
                             onTap: () => setState(() => picked = i),
                             child: Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(14),
-                                color: isOn
-                                    ? cs.primary.withOpacity(0.10)
-                                    : cs.surfaceContainerLowest,
+                                color: isOn ? cs.primary.withOpacity(0.10) : cs.surfaceContainerLowest,
                                 border: Border.all(
-                                  color: isOn
-                                      ? cs.primary.withOpacity(0.45)
-                                      : cs.outlineVariant.withOpacity(0.45),
+                                  color: isOn ? cs.primary.withOpacity(0.45) : cs.outlineVariant.withOpacity(0.45),
                                 ),
                               ),
                               child: Row(
@@ -1360,8 +1500,7 @@ $qa
                                   Expanded(
                                     child: Text(
                                       c.text,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w700),
+                                      style: const TextStyle(fontWeight: FontWeight.w700),
                                     ),
                                   ),
                                   if (isOn) const Icon(Icons.check, size: 18),
@@ -1376,7 +1515,6 @@ $qa
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              // ✅ 스킵(선택) 버튼: UI 구조는 동일, 문구만 스킵 의미
                               onPressed: () => Navigator.pop(ctx, null),
                               child: const Text('건너뛰기'),
                             ),
@@ -1384,9 +1522,7 @@ $qa
                           const SizedBox(width: 10),
                           Expanded(
                             child: FilledButton(
-                              onPressed: picked == null
-                                  ? null
-                                  : () => Navigator.pop(ctx, picked),
+                              onPressed: picked == null ? null : () => Navigator.pop(ctx, picked),
                               child: const Text('적용'),
                             ),
                           ),
@@ -1473,22 +1609,19 @@ class _ResultCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 title,
-                style: t.textTheme.headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.w900),
+                style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 10),
               Divider(color: cs.outlineVariant.withOpacity(0.55)),
               const SizedBox(height: 10),
               Text(
                 reason1,
-                style:
-                t.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
+                style: t.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               Text(
                 reason2,
-                style:
-                t.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                style: t.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
               ),
             ],
           ),
@@ -1497,6 +1630,7 @@ class _ResultCard extends StatelessWidget {
     );
   }
 }
+
 /// =======================
 /// Rewarded Ad (local)
 /// =======================
@@ -1549,7 +1683,7 @@ class _RewardedAdGate {
 
     await ad.show(
       onUserEarnedReward: (_, __) async {
-        await onRewarded(); // ✅ 보상 콜백에서만 “AI 호출”
+        await onRewarded();
       },
     );
   }
