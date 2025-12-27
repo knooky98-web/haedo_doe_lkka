@@ -1,12 +1,10 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 
 import '../core.dart';
+import '../ai/ai_usage_store.dart';
 
 import 'judge_models.dart';
 import 'judge_questions.dart';
@@ -1052,10 +1050,11 @@ $qa
                       ),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: FilledButton(
                       onPressed: () => Navigator.pop(ctx),
                       child: const Text('닫기'),
                     ),
@@ -1078,8 +1077,8 @@ $qa
     if (!_isAiEnabled()) return;
 
     // ✅ 1) 하루 사용 제한 체크 (3회)
-    final used = await _AiUsageStore.getUsedToday();
-    if (used >= 100) {
+    final used = await AiUsageStore.getUsedToday();
+    if (used >= 10) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1102,8 +1101,8 @@ $qa
           ),
         );
 
-        // ✅ 사용 횟수 증가
-        await _AiUsageStore.increment();
+        // ✅ 사용 횟수 증가 (보상에서만!)
+        await AiUsageStore.increment();
 
         // ✅ 실제 AI 호출
         String aiText;
@@ -1180,13 +1179,12 @@ $qa
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
-                        height: 56, // ✅ 여기 숫자 키우면 더 큼(예: 60)
+                        height: 56,
                         child: FilledButton(
                           onPressed: () => Navigator.pop(ctx),
                           child: const Text('닫기'),
                         ),
                       ),
-
                     ],
                   ),
                 ),
@@ -1284,7 +1282,7 @@ $qa
                           ),
                           const Spacer(),
                           FutureBuilder<int>(
-                            future: _AiUsageStore.getUsedToday(),
+                            future: AiUsageStore.getUsedToday(),
                             builder: (context, snapshot) {
                               final used = snapshot.data ?? 0;
                               final left = (3 - used).clamp(0, 3);
@@ -1626,108 +1624,5 @@ class _ResultCard extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// =======================
-/// Rewarded Ad (local)
-/// =======================
-class _RewardedAdGate {
-  RewardedAd? _ad;
-  bool get isLoaded => _ad != null;
-
-  // ✅ Android 테스트 리워드 광고 유닛
-  static const String testUnitId = 'ca-app-pub-3940256099942544/5224354917';
-
-  void load({String adUnitId = testUnitId}) {
-    RewardedAd.load(
-      adUnitId: adUnitId,
-      request: const AdRequest(),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (ad) {
-          _ad = ad;
-          _ad!.setImmersiveMode(true);
-        },
-        onAdFailedToLoad: (_) {
-          _ad = null;
-        },
-      ),
-    );
-  }
-
-  Future<void> show({
-    required Future<void> Function() onRewarded,
-    void Function()? onClosed,
-    void Function()? onFailed,
-  }) async {
-    final ad = _ad;
-    if (ad == null) {
-      onFailed?.call();
-      return;
-    }
-
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
-        _ad = null;
-        onClosed?.call();
-      },
-      onAdFailedToShowFullScreenContent: (ad, _) {
-        ad.dispose();
-        _ad = null;
-        onFailed?.call();
-      },
-    );
-
-    await ad.show(
-      onUserEarnedReward: (_, __) async {
-        await onRewarded();
-      },
-    );
-  }
-
-  void dispose() {
-    _ad?.dispose();
-    _ad = null;
-  }
-}
-
-/// =======================
-/// AI usage limiter (local)
-/// =======================
-class _AiUsageStore {
-  static const _kDate = 'ai_used_date';
-  static const _kCount = 'ai_used_count';
-
-  static String _todayKey(DateTime now) =>
-      '${now.year.toString().padLeft(4, '0')}-'
-          '${now.month.toString().padLeft(2, '0')}-'
-          '${now.day.toString().padLeft(2, '0')}';
-
-  static Future<int> getUsedToday() async {
-    final prefs = await SharedPreferences.getInstance();
-    final today = _todayKey(DateTime.now());
-
-    final savedDate = prefs.getString(_kDate);
-    if (savedDate != today) {
-      await prefs.setString(_kDate, today);
-      await prefs.setInt(_kCount, 0);
-      return 0;
-    }
-    return prefs.getInt(_kCount) ?? 0;
-  }
-
-  static Future<void> increment() async {
-    final prefs = await SharedPreferences.getInstance();
-    final today = _todayKey(DateTime.now());
-
-    final savedDate = prefs.getString(_kDate);
-    if (savedDate != today) {
-      await prefs.setString(_kDate, today);
-      await prefs.setInt(_kCount, 1);
-      return;
-    }
-    final cur = prefs.getInt(_kCount) ?? 0;
-    await prefs.setInt(_kCount, cur + 1);
   }
 }

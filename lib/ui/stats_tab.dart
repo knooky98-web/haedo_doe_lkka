@@ -886,8 +886,11 @@ class _WeekdayInlineList extends StatelessWidget {
 
     // 선택 요일 로그
     final selectedWeekday = weekdayPick + 1;
-    final dayLogs = logs.where((l) => l.at.weekday == selectedWeekday).toList()
+    final dayLogs = logs
+        .where((l) => l.at.weekday == selectedWeekday)
+        .toList()
       ..sort((a, b) => b.at.compareTo(a.at));
+
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -141,10 +141,10 @@ int expForLog({
         return 5;
       case '이벤트/여행':
         return 4;
+      case '충동구매':
+        return 2;
       case '스트레스':
         return 3;
-      case '스트레스':
-        return 2;
       default:
         return base;
     }
