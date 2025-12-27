@@ -57,7 +57,7 @@ class _DecideTabState extends State<DecideTab> {
   int _questionNonce = 0; // ✅ 질문 조합 다양화용
   final Map<String, List<String>> _recentQIdsByAction = {};
   static const int _recentQKeep = 12;
-
+  bool _aiBusy = false;
   String selected = '자기관리';
 
   /// 5단계 결과 문자열 (기존 result(String?) 구조 유지)
@@ -78,6 +78,7 @@ class _DecideTabState extends State<DecideTab> {
 
   // AI 프롬프트(리워드 광고 이후에 실제 호출할 텍스트)
   String _aiPrompt = '';
+
 
   double _sheetBottomPad(BuildContext ctx) {
     final mq = MediaQuery.of(ctx);
@@ -972,7 +973,7 @@ $qa
                   Text(selected,
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 6),
-                  const Text('정말 “했다”고 기록할까?'),
+                  const Text('정말 “했다”고 기록할까요?'),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -1076,130 +1077,186 @@ $qa
   Future<void> _onAiDetail() async {
     if (!_isAiEnabled()) return;
 
-    // ✅ 1) 하루 사용 제한 체크 (3회)
-    final used = await AiUsageStore.getUsedToday();
-    if (used >= 10) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('AI 설명은 하루 3회까지 가능해 (${used.clamp(0, 3)}/3)'),
-        ),
-      );
-      return;
+    // ✅ 판단 결과가 없는데 AI만 누르는 케이스 방지
+    if (result == null) return;
+
+    // ✅ 연타 방지 (State 필드 필요)
+    if (_aiBusy) return;
+    _aiBusy = true;
+
+    bool finalized = false; // commit/rollback 중복 방지
+    bool rewarded = false;  // 보상 받았는지(광고 완료 여부)
+
+    Future<void> rollbackOnce() async {
+      if (finalized) return;
+      finalized = true;
+      await AiUsageStore.rollback();
     }
 
-    // ✅ 2) 리워드 광고 보여주기
-    await rewardedAds.show(
-      onRewarded: () async {
-        if (!mounted) return;
+    Future<void> commitOnce() async {
+      if (finalized) return;
+      finalized = true;
+      await AiUsageStore.commit();
+    }
 
-        // 🔹 UX 안내
+    try {
+      // ✅ 1) “광고 보기 직전”에 자리 선점 (used+reserved 기준 하루 3회)
+      final ok = await AiUsageStore.reserve(limit: 3);
+      if (!ok) {
+        final total = await AiUsageStore.getUsedOrReservedToday();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('조금 더 정리해보기는 하루 3회까지 가능해요'),
+          ),
+        );
+        return;
+      }
+
+      // ✅ 2) 광고 로드 여부 체크 (show() 전에!)
+      if (!rewardedAds.isLoaded) {
+        await rollbackOnce(); // 예약했는데 광고 없으면 롤백
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('AI 판단 중...'),
+            content: Text('잠시 후 다시 시도해주세요.'),
             duration: Duration(seconds: 2),
           ),
         );
+        rewardedAds.load(); // 다음 시도 대비
+        return;
+      }
 
-        // ✅ 사용 횟수 증가 (보상에서만!)
-        await AiUsageStore.increment();
-
-        // ✅ 실제 AI 호출
-        String aiText;
-        try {
-          aiText = await _callAiViaProxy(prompt: _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt);
-        } catch (e) {
+      // ✅ 3) 리워드 광고 보여주기
+      await rewardedAds.show(
+        onRewarded: () async {
+          rewarded = true;
           if (!mounted) return;
+
+          // 🔹 UX 안내(기존 유지)
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('AI 호출 실패: $e')),
+            const SnackBar(
+              content: Text('판단 중...'),
+              duration: Duration(seconds: 2),
+            ),
           );
-          return;
-        }
 
-        if (!mounted) return;
+          try {
+            final aiText = await _callAiViaProxy(
+              prompt: _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt,
+            );
 
-        // ✅ 결과 표시 BottomSheet
-        await showModalBottomSheet<void>(
-          context: context,
-          useSafeArea: true,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (ctx) {
-            final cs = Theme.of(ctx).colorScheme;
+            // ✅ AI 성공 시에만 확정 1회 소모 (reserved → used)
+            await commitOnce();
 
-            final mq = MediaQuery.of(ctx);
-            final maxH = (mq.size.height * 0.62).clamp(260.0, mq.size.height - 160);
+            if (!mounted) return;
 
-            return Padding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
-              child: Container(
-                constraints: BoxConstraints(maxHeight: maxH),
-                decoration: BoxDecoration(
-                  color: cs.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: cs.outlineVariant.withOpacity(0.55)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '조금 더 정리해보면',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                      ),
-                      const SizedBox(height: 12),
+            // ✅ 결과 표시 BottomSheet (기존 UI 그대로)
+            await showModalBottomSheet<void>(
+              context: context,
+              useSafeArea: true,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (ctx) {
+                final cs = Theme.of(ctx).colorScheme;
+                final mq = MediaQuery.of(ctx);
+                final maxH =
+                (mq.size.height * 0.62).clamp(260.0, mq.size.height - 160);
 
-                      Expanded(
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            color: cs.surfaceContainerLowest,
-                            border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
+                return Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
+                  child: Container(
+                    constraints: BoxConstraints(maxHeight: maxH),
+                    decoration: BoxDecoration(
+                      color: cs.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: cs.outlineVariant.withOpacity(0.55)),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '조금 더 정리해보면',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                           ),
-                          child: SingleChildScrollView(
-                            child: SelectableText(
-                              aiText,
-                              style: const TextStyle(fontSize: 14, height: 1.35),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                color: cs.surfaceContainerLowest,
+                                border: Border.all(
+                                    color: cs.outlineVariant.withOpacity(0.45)),
+                              ),
+                              child: SingleChildScrollView(
+                                child: SelectableText(
+                                  aiText,
+                                  style: const TextStyle(fontSize: 14, height: 1.35),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          const SizedBox(height: 10),
+                          _aiSummaryCard(
+                            aiText: aiText,
+                            action: selected,
+                            resultKey: result ?? 'MAYBE',
+                            theme: Theme.of(ctx),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: FilledButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('닫기'),
+                            ),
+                          ),
+                        ],
                       ),
-
-                      const SizedBox(height: 10),
-                      _aiSummaryCard(
-                        aiText: aiText,
-                        action: selected,
-                        resultKey: result ?? 'MAYBE',
-                        theme: Theme.of(ctx),
-                      ),
-
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: FilledButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('닫기'),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             );
-          },
-        );
-      },
-      onFailed: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('광고를 불러오지 못했어요')),
-        );
-      },
-    );
+          } catch (e) {
+            // ✅ AI 실패면 롤백 + 안내
+            await rollbackOnce();
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('호출 실패')),
+            );
+          }
+        },
+
+        // ✅ 광고 닫힘: 보상 못 받았으면 롤백
+        // (RewardedAdService.show()가 void 콜백이라 async 붙이면 타입 안 맞을 수 있음)
+        onClosed: () {
+          if (!rewarded) {
+            rollbackOnce(); // fire-and-forget
+          }
+        },
+
+        // ✅ 광고 실패: 롤백 + 안내
+        onFailed: () {
+          rollbackOnce(); // fire-and-forget
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('광고 재생 실패')),
+          );
+        },
+      );
+    } finally {
+      _aiBusy = false;
+      if (mounted) setState(() {}); // ✅ 남은횟수(FutureBuilder) 갱신용
+    }
   }
+
+
 
   // --------------------------
   // build (UI는 기존 그대로)
@@ -1282,18 +1339,18 @@ $qa
                           ),
                           const Spacer(),
                           FutureBuilder<int>(
-                            future: AiUsageStore.getUsedToday(),
+                            future: AiUsageStore.remainingToday(limit: 3), // ✅ used + reserved 기준
                             builder: (context, snapshot) {
-                              final used = snapshot.data ?? 0;
-                              final left = (3 - used).clamp(0, 3);
+                              final left = (snapshot.data ?? 3).clamp(0, 3);
 
                               return TextButton.icon(
-                                onPressed: _isAiEnabled() ? _onAiDetail : null,
+                                onPressed: (_isAiEnabled() && result != null) ? _onAiDetail : null,
                                 icon: const Icon(Icons.headphones, size: 18),
                                 label: Text('조금 더 정리해보기 ($left/3)'),
                               );
                             },
                           ),
+
                         ],
                       ),
                     ],
