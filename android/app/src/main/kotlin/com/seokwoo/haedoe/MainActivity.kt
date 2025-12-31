@@ -1,4 +1,4 @@
-package com.example.haedo_doe_lkka
+package com.seokwoo.haedoe
 
 import io.flutter.embedding.android.FlutterActivity
 

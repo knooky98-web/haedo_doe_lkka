@@ -1,17 +1,26 @@
 import 'dart:developer' as dev;
+import 'package:flutter/foundation.dart'; // kReleaseMode
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class RewardedAdService {
   RewardedAd? _ad;
   bool get isLoaded => _ad != null;
 
+  // ✅ Google 공식 테스트 리워드 광고 유닛(개발용)
   static const String testUnitId = 'ca-app-pub-3940256099942544/5224354917';
 
-  void load({String adUnitId = testUnitId}) {
-    dev.log('🚀 load() CALLED unit=$adUnitId', name: 'ADS');
+  // ✅ 네 AdMob "보상형 광고 단위 ID" (실제값)
+  static const String realUnitId = 'ca-app-pub-6290370736855622/6583377104';
+
+  /// ✅ 디버그=테스트 / 릴리즈=실유닛 자동 선택
+  static String get defaultUnitId => kReleaseMode ? realUnitId : testUnitId;
+
+  void load({String? adUnitId}) {
+    final unit = adUnitId ?? defaultUnitId;
+    dev.log('🚀 load() CALLED unit=$unit', name: 'ADS');
 
     RewardedAd.load(
-      adUnitId: adUnitId,
+      adUnitId: unit,
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
@@ -41,7 +50,7 @@ class RewardedAdService {
       return;
     }
 
-    bool rewarded = false; // ✅ 보상 받았는지 플래그
+    bool rewarded = false;
 
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (ad) {
@@ -58,7 +67,7 @@ class RewardedAdService {
         ad.dispose();
         _ad = null;
 
-        // ✅ 다음을 위해 항상 재로드(안정성)
+        // ✅ 다음을 위해 항상 재로드
         load();
 
         onClosed?.call();
@@ -79,15 +88,16 @@ class RewardedAdService {
       await ad.show(
         onUserEarnedReward: (ad, reward) async {
           rewarded = true;
-          dev.log('🎁 onUserEarnedReward type=${reward.type} amount=${reward.amount}', name: 'ADS');
+          dev.log(
+            '🎁 onUserEarnedReward type=${reward.type} amount=${reward.amount}',
+            name: 'ADS',
+          );
 
-          // ✅ 보상에서만 AI 실행 (여기가 정답)
-          // (닫힘 콜백에서 AI 실행하면 타이밍 꼬임)
+          // ✅ 보상에서만 AI 실행
           await onRewarded();
         },
       );
     } catch (e) {
-      // ✅ show() 자체가 예외를 던지는 경우도 있음
       dev.log('❌ EXCEPTION_IN_SHOW: $e', name: 'ADS');
       _ad = null;
       load();

@@ -1131,7 +1131,10 @@ $qa
       await rewardedAds.show(
         onRewarded: () async {
           rewarded = true;
-          if (!mounted) return;
+          if (!mounted) {
+            await rollbackOnce(); // ⬅️ 이 줄 추가
+            return;
+          }
 
           // 🔹 UX 안내(기존 유지)
           ScaffoldMessenger.of(context).showSnackBar(
