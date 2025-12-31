@@ -52,6 +52,37 @@ class LogTab extends StatefulWidget {
 }
 
 class _LogTabState extends State<LogTab> {
+  int _lastLevel = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastLevel = calcLevelProgress(widget.totalExp).level;
+  }
+
+  @override
+  void didUpdateWidget(covariant LogTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!mounted) return; // 🔧 이 줄 추가
+
+    // totalExp가 바뀌었을 때만 체크
+    if (oldWidget.totalExp == widget.totalExp) return;
+
+    final oldLevel = calcLevelProgress(oldWidget.totalExp).level;
+    final newLp = calcLevelProgress(widget.totalExp);
+
+    // 🔥 레벨업 감지
+    if (newLp.level > oldLevel && newLp.level != _lastLevel) {
+      _lastLevel = newLp.level;
+
+      // build 중 dialog 호출 방지
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showLevelUpDialog(level: newLp.level, name: newLp.name);
+      });
+    }
+  }
+
   Future<bool> _confirmDidItSheet({
     required String title,
   }) async {
@@ -147,6 +178,28 @@ class _LogTabState extends State<LogTab> {
     );
 
     return ok == true;
+  }
+  Future<void> _showLevelUpDialog({
+    required int level,
+    required String name,
+  }) async {
+    HapticFeedback.heavyImpact();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('레벨 업! 🎉'),
+          content: Text('축하해요!\nLv $level · $name 달성!'),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('좋아!'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

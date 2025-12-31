@@ -33,9 +33,9 @@ dependencies:
 
   # ✅ 리워드 광고(AI용)
   google_mobile_ads: ^5.1.0
+    # 🔥 광고 하루 제한 저장용 (필수)
+  shared_preferences: ^2.2.2
 
-  # ✅ 로컬 저장(하루 3회 제한)
-  shared_preferences: ^2.3.2
 
 
   # The following adds the Cupertino Icons font to your application.

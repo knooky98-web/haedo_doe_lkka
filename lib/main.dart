@@ -8,15 +8,12 @@ Future<void> main() async {
 
   await MobileAds.instance.initialize();
 
-  // ✅ 테스트 디바이스 설정(네 로그에 찍힌 값)
-  await MobileAds.instance.updateRequestConfiguration(
-    RequestConfiguration(
-      testDeviceIds: ['11427C643901094A9B2BA28CFC09D37A'],
-    ),
-  );
 
-  // ✅ 앱 시작 시 미리 로드
-  rewardedAds.load();
+
+
+  // ✅ 앱 실행/복귀 후 1분 뒤 전면광고(라이프사이클 포함) 시작
+  // - 내부에서 interstitial/rewardedInterstitial 로드도 같이 함
+  appLaunchInterstitial.start();
 
   runApp(const HaedoApp());
 }

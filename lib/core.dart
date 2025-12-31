@@ -1,7 +1,325 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:developer' as dev;
+import 'package:flutter/foundation.dart'; // kReleaseMode
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/services.dart';
-import 'dart:io';
-import 'ads/rewarded_ad_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// =====================================================
+/// ✅ 광고 전역 인스턴스 (앱 전체에서 1개씩만)
+/// =====================================================
+/// - interstitialAds: 앱 실행/복귀 후 1분 뒤 전면광고
+/// - rewardedAds: "이유 더 보기" 누를 때 보상형(Rewarded)
+final interstitialAds = InterstitialAdService();
+final rewardedAds = RewardedAdService();
+
+/// =====================================================
+/// ✅ 앱 실행/복귀 후 1분 뒤 전면광고(Interstitial) 컨트롤러
+/// =====================================================
+final appLaunchInterstitial = AppLaunchInterstitialController();
+
+class AppLaunchInterstitialController with WidgetsBindingObserver {
+  Timer? _timer;
+  bool _scheduled = false;
+  bool _shownThisSession = false;
+
+  Duration delay = const Duration(minutes: 1);
+  Duration minInterval = const Duration(minutes: 3);
+  DateTime? _lastShownAt;
+
+  void start() {
+    WidgetsBinding.instance.addObserver(this);
+
+    // 미리 로드
+    interstitialAds.load();
+    rewardedAds.load();
+
+    _schedule();
+  }
+
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      interstitialAds.load();
+      rewardedAds.load();
+      _schedule();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _timer?.cancel();
+      _timer = null;
+      _scheduled = false;
+    }
+  }
+
+  void _schedule() {
+    if (_shownThisSession) return;
+    if (_scheduled) return;
+
+    final now = DateTime.now();
+    if (_lastShownAt != null && now.difference(_lastShownAt!) < minInterval) {
+      return;
+    }
+
+    _scheduled = true;
+    _timer?.cancel();
+    _timer = Timer(delay, () async {
+      _scheduled = false;
+
+      if (_shownThisSession) return;
+
+      // ✅ 간간히 안 나오게: 확률(예: 65%만 노출)
+      final roll = (now.millisecondsSinceEpoch % 100);
+      if (roll >= 65) {
+        interstitialAds.load();
+        return;
+      }
+
+      if (!interstitialAds.isLoaded) {
+        interstitialAds.load();
+        return;
+      }
+
+      // 🔥 하루 3회 제한
+      if (!await AdDailyLimit.canShowInterstitial()) return;
+
+      await interstitialAds.show(
+        onClosed: () async {
+          _shownThisSession = true;
+          _lastShownAt = DateTime.now();
+          await AdDailyLimit.markInterstitialShown();
+        },
+        onFailed: () {},
+      );
+    });
+  }
+}
+
+/// =====================================================
+/// ✅ 전면광고(Interstitial) 서비스
+/// =====================================================
+class InterstitialAdService {
+  InterstitialAd? _ad;
+  bool get isLoaded => _ad != null;
+
+  static const String testUnitId =
+      'ca-app-pub-3940256099942544/1033173712';
+
+  static const String realUnitId =
+      'ca-app-pub-6290370736855622/3860138706';
+
+  static String get defaultUnitId => kReleaseMode ? realUnitId : testUnitId;
+
+  void load({String? adUnitId}) {
+    final unit = adUnitId ?? defaultUnitId;
+    dev.log('🚀 interstitial load() unit=$unit', name: 'ADS');
+
+    InterstitialAd.load(
+      adUnitId: unit,
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          dev.log('✅ interstitial LOADED', name: 'ADS');
+          _ad = ad;
+          _ad!.setImmersiveMode(true);
+        },
+        onAdFailedToLoad: (err) {
+          dev.log('❌ interstitial FAILED_TO_LOAD: ${err.code} - ${err.message}', name: 'ADS');
+          _ad = null;
+        },
+      ),
+    );
+  }
+
+  Future<void> show({
+    void Function()? onClosed,
+    void Function()? onFailed,
+  }) async {
+    final ad = _ad;
+    if (ad == null) {
+      onFailed?.call();
+      load();
+      return;
+    }
+
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _ad = null;
+        load();
+        onClosed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (ad, err) {
+        ad.dispose();
+        _ad = null;
+        load();
+        onFailed?.call();
+      },
+    );
+
+    try {
+      await ad.show();
+    } catch (e) {
+      dev.log('❌ interstitial EXCEPTION_IN_SHOW: $e', name: 'ADS');
+      _ad = null;
+      load();
+      onFailed?.call();
+    }
+  }
+
+  void dispose() {
+    _ad?.dispose();
+    _ad = null;
+  }
+}
+
+/// =====================================================
+/// ✅ 보상형(Rewarded) 서비스  ← "이유 더 보기"용
+/// =====================================================
+class RewardedAdService {
+  RewardedAd? _ad;
+  bool get isLoaded => _ad != null;
+
+  static const String testUnitId = 'ca-app-pub-3940256099942544/5224354917';
+  static const String realUnitId = 'ca-app-pub-6290370736855622/6583377104';
+
+  static String get defaultUnitId => kReleaseMode ? realUnitId : testUnitId;
+
+  void load({String? adUnitId}) {
+    final unit = adUnitId ?? defaultUnitId;
+    dev.log('🚀 rewarded load() CALLED unit=$unit', name: 'ADS');
+
+    RewardedAd.load(
+      adUnitId: unit,
+      request: const AdRequest(),
+      rewardedAdLoadCallback: RewardedAdLoadCallback(
+        onAdLoaded: (ad) {
+          dev.log('✅ rewarded LOADED', name: 'ADS');
+          _ad = ad;
+          _ad!.setImmersiveMode(true);
+        },
+        onAdFailedToLoad: (err) {
+          dev.log('❌ rewarded FAILED_TO_LOAD: ${err.code} - ${err.message}', name: 'ADS');
+          _ad = null;
+        },
+      ),
+    );
+  }
+
+  Future<void> show({
+    required Future<void> Function() onRewarded,
+    void Function()? onClosed,
+    void Function()? onFailed,
+  }) async {
+    dev.log('🎬 rewarded show() called. isLoaded=$isLoaded', name: 'ADS');
+
+    final ad = _ad;
+    if (ad == null) {
+      dev.log('⚠️ rewarded show() but ad is null', name: 'ADS');
+      onFailed?.call();
+      load();
+      return;
+    }
+
+    bool rewarded = false;
+
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        dev.log('🟥 rewarded dismissed rewarded=$rewarded', name: 'ADS');
+        ad.dispose();
+        _ad = null;
+        load();
+        onClosed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (ad, err) {
+        dev.log('❌ rewarded FAILED_TO_SHOW: ${err.code} - ${err.message}', name: 'ADS');
+        ad.dispose();
+        _ad = null;
+        load();
+        onFailed?.call();
+      },
+    );
+
+    try {
+      await ad.show(
+        onUserEarnedReward: (ad, reward) async {
+          rewarded = true;
+          dev.log('🎁 onUserEarnedReward type=${reward.type} amount=${reward.amount}', name: 'ADS');
+          await onRewarded();
+        },
+      );
+    } catch (e) {
+      dev.log('❌ rewarded EXCEPTION_IN_SHOW: $e', name: 'ADS');
+      _ad = null;
+      load();
+      onFailed?.call();
+    }
+  }
+
+  void dispose() {
+    _ad?.dispose();
+    _ad = null;
+  }
+}
+
+class AdDailyLimit {
+  static const _dateKey = 'ad_limit_date';
+  static const _interstitialKey = 'ad_interstitial_cnt';
+  static const _rewardedKey = 'ad_rewarded_cnt';
+
+  static String _today() {
+    final d = DateTime.now();
+    return '${d.year}-${d.month}-${d.day}';
+  }
+
+  static Future<void> _resetIfNewDay(SharedPreferences prefs) async {
+    final today = _today();
+    final saved = prefs.getString(_dateKey);
+
+    if (saved != today) {
+      await prefs.setString(_dateKey, today);
+      await prefs.setInt(_interstitialKey, 0);
+      await prefs.setInt(_rewardedKey, 0);
+    }
+  }
+
+  /// 전면광고: 하루 최대 3회
+  static Future<bool> canShowInterstitial({int max = 3}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await _resetIfNewDay(prefs);
+    final used = prefs.getInt(_interstitialKey) ?? 0;
+    return used < max;
+  }
+
+  static Future<void> markInterstitialShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    await _resetIfNewDay(prefs);
+    final used = prefs.getInt(_interstitialKey) ?? 0;
+    await prefs.setInt(_interstitialKey, used + 1);
+  }
+
+  /// ✅ 보상형(Rewarded): 하루 최대 2회  (이유 더 보기)
+  static Future<bool> canShowRewarded({int max = 2}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await _resetIfNewDay(prefs);
+    final used = prefs.getInt(_rewardedKey) ?? 0;
+    return used < max;
+  }
+
+  static Future<void> markRewardedShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    await _resetIfNewDay(prefs);
+    final used = prefs.getInt(_rewardedKey) ?? 0;
+    await prefs.setInt(_rewardedKey, used + 1);
+  }
+}
 
 
 /// =======================
@@ -90,7 +408,7 @@ int expForLog({
 
     int timeBonus;
 
-    // 직접입력 + 120분 이상이면 시간보너스 12로 고정(맥시멈)
+    // 직접입력 + 120분 이상이면 시간보너스 12로 고정(Max)
     if (isCustomMinutes && m >= 120) {
       timeBonus = 12;
     } else {
@@ -273,7 +591,7 @@ Future<SelfCareResult?> showSelfCareDialog(BuildContext context) async {
                                   ),
                                 ),
                                 const SizedBox(height: 10),
-                                const Text('※ 직접입력 120분 이상이면 시간보너스는 +12 (보너스 맥시멈)'),
+                                const Text('※ 직접입력 120분 이상이면 시간보너스는 +12 (보너스 MAx)'),
                               ],
                             ),
                           ),
@@ -429,10 +747,7 @@ Future<ActionDef?> showAddActionDialog(BuildContext context) async {
   ActionKind kind = ActionKind.neutral;
 
   final icons = <IconData>[
-    // 기본
     Icons.check_circle_outline,
-
-    // 🧠 자기관리 / 성장
     Icons.self_improvement,
     Icons.school_outlined,
     Icons.book_outlined,
@@ -440,30 +755,23 @@ Future<ActionDef?> showAddActionDialog(BuildContext context) async {
     Icons.cleaning_services_outlined,
     Icons.directions_run,
     Icons.spa,
-
-    // 🎮 여가 / 휴식
     Icons.music_note_outlined,
     Icons.movie_outlined,
     Icons.sports_esports_outlined,
     Icons.videogame_asset_outlined,
     Icons.tv_outlined,
     Icons.nightlight_outlined,
-
-    // 💸 소비 / 일상
     Icons.restaurant_outlined,
     Icons.shopping_cart_outlined,
     Icons.receipt_long,
     Icons.card_giftcard,
     Icons.attach_money,
-
-    // ⚠️ 유혹 / 컨트롤
     Icons.phone_android,
     Icons.coffee,
     Icons.fastfood,
     Icons.local_bar,
     Icons.bolt,
   ];
-
 
   IconData selectedIcon = icons.first;
 
@@ -598,7 +906,6 @@ Future<ActionDef?> showAddActionDialog(BuildContext context) async {
                                     color: Theme.of(ctx).colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-
                               ],
                             ),
                           ),
@@ -683,7 +990,6 @@ class LogItem {
 // ===============================
 // 🎮 Level / EXP System (9 Levels)
 // ===============================
-
 class LevelDef {
   final int level;
   final String name;
@@ -696,7 +1002,6 @@ class LevelDef {
   });
 }
 
-/// 레벨 정의 (Lv1 ~ Lv9)
 const List<LevelDef> kLevels = [
   LevelDef(level: 1, name: '방황 중', needExp: 80),
   LevelDef(level: 2, name: '관리 시작', needExp: 200),
@@ -706,16 +1011,14 @@ const List<LevelDef> kLevels = [
   LevelDef(level: 6, name: '갓생 예비', needExp: 1600),
   LevelDef(level: 7, name: '갓생 실천자', needExp: 2300),
   LevelDef(level: 8, name: '갓생 루틴화', needExp: 3100),
-  // Lv9는 최종 단계 (다음 레벨 없음)
   LevelDef(level: 9, name: '갓생 마스터', needExp: 0),
 ];
 
-/// 계산 결과 모델
 class LevelProgress {
   final int level;
   final String name;
-  final double percent;      // 0.0 ~ 1.0
-  final int remainToNext;    // 다음 레벨까지 남은 EXP
+  final double percent; // 0.0 ~ 1.0
+  final int remainToNext; // 다음 레벨까지 남은 EXP
 
   const LevelProgress({
     required this.level,
@@ -725,14 +1028,12 @@ class LevelProgress {
   });
 }
 
-/// 누적 EXP → 현재 레벨 / 퍼센트 / 남은 EXP 계산
 LevelProgress calcLevelProgress(int totalExp) {
   int acc = 0;
 
   for (int i = 0; i < kLevels.length; i++) {
     final cur = kLevels[i];
 
-    // 마지막 레벨
     if (cur.needExp == 0) {
       return LevelProgress(
         level: cur.level,
@@ -760,7 +1061,6 @@ LevelProgress calcLevelProgress(int totalExp) {
     acc = nextAcc;
   }
 
-  // 안전장치 (이론상 도달 안 함)
   final last = kLevels.last;
   return LevelProgress(
     level: last.level,
@@ -769,140 +1069,3 @@ LevelProgress calcLevelProgress(int totalExp) {
     remainToNext: 0,
   );
 }
-// =====================================================
-// Rewarded Ad Gate (광고 → 보상 → AI 허용)
-// =====================================================
-final rewardedAds = RewardedAdService(); // ✅ 앱 전체에서 하나만 쓰는 광고 서비스
-
-/*class RewardedGate {
-  RewardedAd? _ad;
-  bool _loading = false;
-
-  bool get isLoaded => _ad != null;
-
-  // ✅ 테스트용 리워드 광고 ID (Android)
-  // 배포 전에 반드시 본인 AdMob 리워드 광고 단위 ID로 교체!
-  static const String _testUnitAndroid = 'ca-app-pub-3940256099942544/5224354917';
-
-  String get _unitId {
-    if (Platform.isAndroid) return _testUnitAndroid;
-    // iOS 테스트 ID도 필요하면 추가
-    return _testUnitAndroid;
-  }
-
-  Future<void> load() async {
-    if (_loading || _ad != null) return;
-    _loading = true;
-
-    await RewardedAd.load(
-      adUnitId: _unitId,
-      request: const AdRequest(),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (ad) {
-          _ad = ad;
-          _loading = false;
-        },
-        onAdFailedToLoad: (err) {
-          _ad = null;
-          _loading = false;
-        },
-      ),
-    );
-  }
-
-  Future<void> showAndEarn({required VoidCallback onEarned}) async {
-    final ad = _ad;
-    if (ad == null) return;
-
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
-        _ad = null;
-        load(); // 다음을 위해 다시 로드
-      },
-      onAdFailedToShowFullScreenContent: (ad, err) {
-        ad.dispose();
-        _ad = null;
-        load();
-      },
-    );
-
-    ad.show(onUserEarnedReward: (ad, reward) {
-      onEarned();
-    });
-  }
-
-  void dispose() {
-    _ad?.dispose();
-    _ad = null;
-  }
-}
-
-// =====================================================
-// AI 사용 횟수 제한 (로컬, 하루 3회)
-// =====================================================
-class AiQuota {
-  static const _kDate = 'ai_quota_date';
-  static const _kUsed = 'ai_quota_used';
-  static const int dailyMax = 3;
-
-  static String _todayKey() {
-    final n = DateTime.now();
-    return '${n.year.toString().padLeft(4, '0')}-'
-        '${n.month.toString().padLeft(2, '0')}-'
-        '${n.day.toString().padLeft(2, '0')}';
-  }
-
-  static Future<int> _getUsedToday(SharedPreferences sp) async {
-    final today = _todayKey();
-    final savedDate = sp.getString(_kDate);
-
-    if (savedDate != today) {
-      await sp.setString(_kDate, today);
-      await sp.setInt(_kUsed, 0);
-      return 0;
-    }
-    return sp.getInt(_kUsed) ?? 0;
-  }
-
-  static Future<bool> canUse() async {
-    final sp = await SharedPreferences.getInstance();
-    final used = await _getUsedToday(sp);
-    return used < dailyMax;
-  }
-
-  static Future<void> consumeOnce() async {
-    final sp = await SharedPreferences.getInstance();
-    final used = await _getUsedToday(sp);
-    await sp.setInt(_kUsed, (used + 1).clamp(0, dailyMax));
-  }
-
-  static Future<int> remaining() async {
-    final sp = await SharedPreferences.getInstance();
-    final used = await _getUsedToday(sp);
-    return (dailyMax - used).clamp(0, dailyMax);
-  }
-}
-
-// =====================================================
-// (임시) AI 설명 텍스트 생성
-// - 지금은 “진짜 AI 호출” 없이도 동작하도록 템플릿만 반환
-// - 나중에 OpenAI 붙일 때 여기만 교체하면 됨
-// =====================================================
-Future<String> buildAiExplainText({
-  required String actionName,
-  required Set<String> tags,
-  required String baseReason1,
-  required String baseReason2,
-}) async {
-  final tagText = tags.isEmpty ? '' : ' (${tags.join(', ')})';
-
-  // 2~4문장 “짧은 설명” 정책
-  return [
-    '지금 “$actionName”은$tagText 애매한 케이스라서, 금지보단 “강도 조절”이 핵심이에요.',
-    baseReason1,
-    baseReason2,
-    '딱 하나만 정하면 좋아요: “얼마나/어디까지 할지”를 짧게 제한하기.',
-  ].join('\n');
-}
-*/

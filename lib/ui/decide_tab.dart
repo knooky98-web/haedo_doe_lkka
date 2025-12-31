@@ -1,10 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'dart:io';
+import '../core/reason_texts.dart';
 
 import '../core.dart';
-import '../ai/ai_usage_store.dart';
 
 import 'judge_models.dart';
 import 'judge_questions.dart';
@@ -19,16 +17,15 @@ import 'judge_logic.dart';
 /// - ✅ ⚠️(주의)일 때만:
 ///    - 추가 질문 1개(선택, 스킵 가능)
 ///    - “선(시간/예산)” 자동 제안 문구 생성
-///    - reason2 / 이유더보기 / AI 프롬프트에 반영
-/// - ✅ AdMob 리워드 광고 이후:
-///    - ✅ Cloud Run 프록시로 실제 AI 호출해서 결과(text) 표시
-///    - ✅ PowerShell에서 해결한 UTF-8(바이트) 방식 그대로 적용
+///    - reason2 / 이유더보기 반영
+///
+/// ✅ 변경점(중요)
+/// - AI 기능 완전 제거
+///   - 광고 닫히면 질문 시작
+///   - 광고 실패/미로드면 그냥 바로 질문 시작
+///   "이유 더 보기"는 보상형(Rewarded)을 시도하되,
+///   ✅ 실패/미로드여도 그냥 이유를 바로 보여줘서 불편 최소화
 /// =======================
-
-/// ✅ 여기에 너 Cloud Run 엔드포인트 넣어줘 (끝에 /ai 포함!)
-/// 예) https://ai-proxy-xxxx.asia-northeast3.run.app/ai
-const String kAiProxyEndpoint =
-    'https://ai-proxy-872620969778.asia-northeast3.run.app/ai';
 
 class DecideTab extends StatefulWidget {
   final List<ActionDef> actions;
@@ -57,7 +54,9 @@ class _DecideTabState extends State<DecideTab> {
   int _questionNonce = 0; // ✅ 질문 조합 다양화용
   final Map<String, List<String>> _recentQIdsByAction = {};
   static const int _recentQKeep = 12;
-  bool _aiBusy = false;
+
+  bool _judgeBusy = false; // ✅ 연타/중복 실행 방지
+
   String selected = '자기관리';
 
   /// 5단계 결과 문자열 (기존 result(String?) 구조 유지)
@@ -76,10 +75,6 @@ class _DecideTabState extends State<DecideTab> {
   // 이유 더 보기(무료)
   List<String> _moreReasons = [];
 
-  // AI 프롬프트(리워드 광고 이후에 실제 호출할 텍스트)
-  String _aiPrompt = '';
-
-
   double _sheetBottomPad(BuildContext ctx) {
     final mq = MediaQuery.of(ctx);
     return 16 + mq.padding.bottom + kBottomNavigationBarHeight + 12;
@@ -87,7 +82,6 @@ class _DecideTabState extends State<DecideTab> {
 
   // ==========================
   // ✅ 커스텀 행동 "준-기본" 승격 + 태그 기반 전용 질문
-  // - 서버 없이 logs로 자동 판단
   // ==========================
   static const Set<String> _builtInActions = {
     '자기관리',
@@ -607,318 +601,161 @@ class _DecideTabState extends State<DecideTab> {
     _moreReasons = expand;
 
     final stat = _patternOf(action);
+
+// ✅ Reason 엔진에 넣을 패턴 변환
+    final p = PatternLite(
+      cnt3: stat.cnt3,
+      cnt5: stat.cnt5,
+      hoursSinceLast: stat.hoursSinceLast,
+      streak: stat.streak,
+    );
+
+// ✅ 행동 타입 추론(돈/술/폰/운동/카페인/수면 등)
+    final aType = actionTypeFromActionName(action);
+
+// ✅ 3단 문구(팩트+해석+대안) 생성
+    final pack = buildReasonPack(
+      result: result ?? 'MAYBE',
+      pattern: p,
+      seed: DateTime.now().millisecondsSinceEpoch ^ action.hashCode ^ score,
+      actionType: aType,
+    );
+
+// ✅ body를 3단 문구로 교체
+    body = pack.toMultiline();
+
+// ✅ 기존 freq/gap 요약은 하단에 그대로 붙임(원하면 삭제 가능)
     final freqText = (stat.cnt5 == 0) ? '최근 5일간 0회' : '최근 5일간 ${stat.cnt5}회';
     final gapText = stat.lastAt == null ? '최근 기록 없음' : '마지막이 ${stat.hoursSinceLast}시간 전';
     body = '$body\n\n• $freqText · $gapText';
 
+// ✅ “이유 더 보기” 리스트도 풍부하게
+    _moreReasons = [
+      ..._moreReasons,
+      pack.fact,
+      pack.interpret,
+      pack.alternative,
+    ];
+
     return [head, body];
-  }
 
-  // --------------------------
-  // 5) AI 프롬프트 생성 (결과 5단계 + 선 제안 반영)
-  // --------------------------
-  String _buildAiPrompt({
-    required String result,
-    required String action,
-    required ActionKind kind,
-    required int score,
-    required List<JudgeQuestion> asked,
-    required Map<String, int> answers,
-    String? limitSuggestion,
-  }) {
-    final kindText = switch (kind) {
-      ActionKind.good => 'GOOD(좋은 행동)',
-      ActionKind.bad => 'BAD(줄이면 좋은 행동)',
-      ActionKind.neutral => 'NEUTRAL(중립)',
-    };
 
-    final qa = asked.map((q) {
-      final idx = answers[q.id] ?? 0;
-      final c = q.choices[idx].text;
-      return '- Q: ${q.title}\n  A: $c';
-    }).join('\n');
 
-    final limitLine = (limitSuggestion != null && limitSuggestion.isNotEmpty)
-        ? '\n- 선(제안): $limitSuggestion'
-        : '';
 
-    return '''
-너는 “해도될까” 앱의 판단 코치야.
-중요: 결과(STRONG_OK/OK/MAYBE/NO/STRONG_NO)는 이미 앱이 결정했으니, 절대 결과를 뒤집거나 다시 판단하지 마.
-규칙: 인사/잡담/추가 질문(정보 요청) 금지. 한국어로만. 반드시 **딱 2문장**. 결론 먼저, 그 다음 한 문장으로 이유/대안을 말해.
+    // --------------------------
+// ✅ 이유 더 보기: 하루 2회까지만 "보상형(Rewarded)" 시도
+// 실패/미로드여도 이유는 항상 보여줌
+// --------------------------
+  Future<void> _onReasonMorePressed() async {
+    if (result == null) return;
 
-[상황]
-- 행동: $action
-- 행동 성격: $kindText
-- 앱 결과: $result
-- 내부 점수: $score$limitLine
-
-[사용자 답변(3문항)]
-$qa
-
-[출력 규칙]
-- 한국어
-- 2문장
-- 인사/잡담 금지
-- 결론 먼저
-- 가능한 “선(시간/강도/예산/대체행동)” 1개 제안
-'''.trim();
-  }
-
-  // --------------------------
-  // ✅ Cloud Run 프록시 호출 (UTF-8 bytes 방식)
-  // --------------------------
-  Future<String> _callAiViaProxy({required String prompt}) async {
-    final uri = Uri.parse(kAiProxyEndpoint);
-
-    // ✅ 스타일 변주용 (1~3)
-    final style = (DateTime.now().millisecondsSinceEpoch % 3) + 1;
-
-    // ✅ messages 형태로 보냄 (프록시가 이걸 기대)
-    final payload = {
-      "messages": [
-        {
-          "role": "system",
-          "content": """
-너는 해도될까 앱의 판단 코치다.
-
-스타일 규칙:
-- 스타일1: 결론 → 이유 1개
-- 스타일2: 위험 요소 1개 → 대안 1개
-- 스타일3: 점수(0~10) → 지금 행동 1개
-
-현재 스타일: $style
-규칙:
-- 인사/잡담/질문 금지
-- 한국어
-- 반드시 2문장
-- 결과를 뒤집거나 재판단하지 말 것
-"""
-        },
-        {"role": "user", "content": prompt}
-      ],
-      "max_output_tokens": 140
-    };
-
-    final jsonStr = jsonEncode(payload);
-
-    // ✅ bytes로 전송 (한글 깨짐 방지)
-    final bytes = utf8.encode(jsonStr);
-
-    final req = await HttpClient().postUrl(uri);
-    req.headers.set(HttpHeaders.contentTypeHeader, "application/json; charset=utf-8");
-    req.add(bytes);
-
-    final resp = await req.close();
-    final respBytes = await resp.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
-    final respText = utf8.decode(respBytes);
-
-    // ✅ A) 응답 로그 (무조건 찍기)
-    print('AI STATUS: ${resp.statusCode}');
-    print('AI RAW RESPONSE: $respText');
-
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw HttpException('Proxy HTTP ${resp.statusCode}: $respText', uri: uri);
+    // 🔥 하루 2회 제한 초과면 광고 없이 바로 이유
+    if (!await AdDailyLimit.canShowRewarded()) {
+      await _showMoreReasons();
+      return;
     }
 
-    final obj = jsonDecode(respText);
-
-    // ✅ B) JSON 로그
-    print('AI JSON: $obj');
-
-    // ✅ C) 프록시 형태 기준으로 성공/실패 판단
-    if (obj is! Map) {
-      throw Exception('Proxy response is not a JSON object');
+    // 1) 로드 안 됐으면 → 그냥 이유 보여주고, 다음을 위해 로드만
+    if (!rewardedAds.isLoaded) {
+      rewardedAds.load();
+      await _showMoreReasons();
+      return;
     }
 
-    final ok = obj["ok"] == true;
-    final text = (obj["text"] ?? "").toString().trim();
-
-    if (!ok) {
-      final err = (obj["error"] ?? "unknown").toString();
-      throw Exception('Proxy returned ok=false: $err');
-    }
-
-    if (text.isEmpty) {
-      // 프록시가 ok=true인데 text가 비는 경우(거의 없음) 방어
-      throw Exception("AI text is empty");
-    }
-
-    return text;
-  }
-
-  // --------------------------
-  // ✅ AI 결과 요약 카드 등 (기존 유지)
-  // --------------------------
-  ({String headline, String why, String tip}) _summarizeAiText(
-      String aiText, {
-        required String action,
-        required String resultKey,
-      }) {
-    final t = aiText.trim();
-
-    final parts = t
-        .split(RegExp(r'[\n\r]+'))
-        .expand((line) => line.split(RegExp(r'(?<=[\.!?。！？…])\s+')))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-
-    String headline = parts.isNotEmpty ? parts[0] : t;
-    String why = parts.length >= 2 ? parts[1] : '';
-    if (why.isEmpty && parts.length >= 3) why = parts[2];
-
-    String tip;
-    switch (resultKey) {
-      case 'STRONG_OK':
-      case 'OK':
-        tip = '지금 하면 좋아. 다만 “끝나는 시점”만 정해.';
-        break;
-      case 'MAYBE':
-        tip = '선(시간/강도)을 정하고, 끝나면 바로 끊어.';
-        break;
-      case 'NO':
-      case 'STRONG_NO':
-        tip = '오늘은 쉬자. 내일 컨디션/목표가 더 중요해.';
-        break;
-      default:
-        tip = '짧게 하고 바로 종료하자.';
-    }
-
-    if (_limitSuggestion != null && _limitSuggestion!.trim().isNotEmpty) {
-      tip = _limitSuggestion!.trim();
-    }
-
-    String cut(String s, int max) => s.length <= max ? s : '${s.substring(0, max)}…';
-    headline = cut(headline, 44);
-    why = cut(why, 64);
-    tip = cut(tip, 44);
-
-    return (headline: headline, why: why, tip: tip);
-  }
-
-  Widget _aiSummaryCard({
-    required String aiText,
-    required String action,
-    required String resultKey,
-    required ThemeData theme,
-  }) {
-    final cs = theme.colorScheme;
-    final sum = _summarizeAiText(aiText, action: action, resultKey: resultKey);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withOpacity(0.45),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.6)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '요약',
-            style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          _summaryRow('결론', sum.headline, theme),
-          const SizedBox(height: 6),
-          if (sum.why.isNotEmpty) _summaryRow('이유', sum.why, theme),
-          const SizedBox(height: 6),
-          _summaryRow('한 줄 팁', sum.tip, theme),
-        ],
-      ),
+    // 2) 보상형(Rewarded) "시도"
+    await rewardedAds.show(
+      onRewarded: () async {
+        // ✅ 끝까지 봤을 때만 카운트
+        await AdDailyLimit.markRewardedShown();
+      },
+      onClosed: () async {
+        // ✅ UX 보장: 닫히면 이유 보여줌
+        await _showMoreReasons();
+      },
+      onFailed: () async {
+        // ✅ 실패해도 이유는 보여줌
+        await _showMoreReasons();
+      },
     );
   }
 
-  Widget _summaryRow(String k, String v, ThemeData theme) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 56,
-          child: Text(
-            k,
-            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            v,
-            style: theme.textTheme.bodySmall?.copyWith(height: 1.25),
-          ),
-        ),
-      ],
-    );
-  }
+
 
   // --------------------------
-  // UI 이벤트: 판단하기
+  // UI 이벤트: 판단하기(기존 로직을 core로 분리)
   // --------------------------
-  Future<void> _judge() async {
-    _questionNonce++;
-    final def = findDefByName(widget.actions, selected);
-    final kind = def?.kind ?? ActionKind.neutral;
+  Future<void> _judgeCore() async {
+    // ✅ 연타 방지 (맨 위)
+    if (_judgeBusy) return;
+    _judgeBusy = true;
 
-    final pool = buildQuestionPool(action: selected, kind: kind, logs: widget.logs);
-    final asked = pickQuestions(
-      pool,
-      action: selected,
-      nonce: _questionNonce,
-      recentQIdsByAction: _recentQIdsByAction,
-      recentKeep: _recentQKeep,
-    );
+    try {
+      _questionNonce++;
+      final def = findDefByName(widget.actions, selected);
+      final kind = def?.kind ?? ActionKind.neutral;
 
-    final res = await _showQuestionFlow(context, asked: asked);
-    if (res == null) return;
+      final pool = buildQuestionPool(action: selected, kind: kind, logs: widget.logs);
+      final asked = pickQuestions(
+        pool,
+        action: selected,
+        nonce: _questionNonce,
+        recentQIdsByAction: _recentQIdsByAction,
+        recentKeep: _recentQKeep,
+      );
 
-    final answers = res;
+      final res = await _showQuestionFlow(context, asked: asked);
 
-    final out = _computeJudge(
-      action: selected,
-      kind: kind,
-      asked: asked,
-      answers: answers,
-    );
+      if (res == null) {
+        if (!mounted) return;
+        setState(() {
+          result = null;
+          reason1 = '최근 패턴을 보면 무난해요.';
+          reason2 = '다만 연속성이 있으면 강도를 낮춰도 좋아요.';
+        });
+        return;
+      }
 
-    String? limitSuggestion;
-    if (out.result == 'MAYBE') {
-      limitSuggestion = await _askLimitIfNeeded(context: context, action: selected);
+
+      final answers = res;
+
+      final out = _computeJudge(
+        action: selected,
+        kind: kind,
+        asked: asked,
+        answers: answers,
+      );
+
+      String? limitSuggestion;
+      if (out.result == 'MAYBE') {
+        limitSuggestion = await _askLimitIfNeeded(context: context, action: selected);
+      }
+
+      final reasons = _buildReasons(
+        result: out.result,
+        action: selected,
+        kind: kind,
+        score: out.score,
+        asked: asked,
+        answers: answers,
+        limitSuggestion: limitSuggestion,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _asked = asked;
+        _answers
+          ..clear()
+          ..addAll(answers);
+
+        _limitSuggestion = limitSuggestion;
+
+        result = out.result;
+        reason1 = reasons[0];
+        reason2 = reasons[1];
+      });
+    } finally {
+      _judgeBusy = false;
     }
-
-    final reasons = _buildReasons(
-      result: out.result,
-      action: selected,
-      kind: kind,
-      score: out.score,
-      asked: asked,
-      answers: answers,
-      limitSuggestion: limitSuggestion,
-    );
-
-    final aiPrompt = _buildAiPrompt(
-      result: out.result,
-      action: selected,
-      kind: kind,
-      score: out.score,
-      asked: asked,
-      answers: answers,
-      limitSuggestion: limitSuggestion,
-    );
-
-    setState(() {
-      _asked = asked;
-      _answers
-        ..clear()
-        ..addAll(answers);
-
-      _limitSuggestion = limitSuggestion;
-
-      result = out.result;
-      reason1 = reasons[0];
-      reason2 = reasons[1];
-      _aiPrompt = aiPrompt;
-    });
   }
 
   // --------------------------
@@ -1069,207 +906,14 @@ $qa
     );
   }
 
-  bool _isAiEnabled() => true;
-
   // --------------------------
-  // ✅ AI로 더 자세히 (리워드 광고 후 "실제 호출" → 결과 표시)
-  // --------------------------
-  Future<void> _onAiDetail() async {
-    if (!_isAiEnabled()) return;
-
-    // ✅ 판단 결과가 없는데 AI만 누르는 케이스 방지
-    if (result == null) return;
-
-    // ✅ 연타 방지 (State 필드 필요)
-    if (_aiBusy) return;
-    _aiBusy = true;
-
-    bool finalized = false; // commit/rollback 중복 방지
-    bool rewarded = false;  // 보상 받았는지(광고 완료 여부)
-
-    Future<void> rollbackOnce() async {
-      if (finalized) return;
-      finalized = true;
-      await AiUsageStore.rollback();
-    }
-
-    Future<void> commitOnce() async {
-      if (finalized) return;
-      finalized = true;
-      await AiUsageStore.commit();
-    }
-
-    try {
-      // ✅ 1) “광고 보기 직전”에 자리 선점 (used+reserved 기준 하루 3회)
-      final ok = await AiUsageStore.reserve(limit: 3);
-      if (!ok) {
-        final total = await AiUsageStore.getUsedOrReservedToday();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('조금 더 정리해보기는 하루 3회까지 가능해요'),
-          ),
-        );
-        return;
-      }
-
-      // ✅ 2) 광고 로드 여부 체크 (show() 전에!)
-      if (!rewardedAds.isLoaded) {
-        await rollbackOnce(); // 예약했는데 광고 없으면 롤백
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('잠시 후 다시 시도해주세요.'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-        rewardedAds.load(); // 다음 시도 대비
-        return;
-      }
-
-      // ✅ 3) 리워드 광고 보여주기
-      await rewardedAds.show(
-        onRewarded: () async {
-          rewarded = true;
-          if (!mounted) {
-            await rollbackOnce(); // ⬅️ 이 줄 추가
-            return;
-          }
-
-          // 🔹 UX 안내(기존 유지)
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('판단 중...'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-
-          try {
-            final aiText = await _callAiViaProxy(
-              prompt: _aiPrompt.isEmpty ? '(프롬프트 없음)' : _aiPrompt,
-            );
-
-            // ✅ AI 성공 시에만 확정 1회 소모 (reserved → used)
-            await commitOnce();
-
-            if (!mounted) return;
-
-            // ✅ 결과 표시 BottomSheet (기존 UI 그대로)
-            await showModalBottomSheet<void>(
-              context: context,
-              useSafeArea: true,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (ctx) {
-                final cs = Theme.of(ctx).colorScheme;
-                final mq = MediaQuery.of(ctx);
-                final maxH =
-                (mq.size.height * 0.62).clamp(260.0, mq.size.height - 160);
-
-                return Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, _sheetBottomPad(ctx)),
-                  child: Container(
-                    constraints: BoxConstraints(maxHeight: maxH),
-                    decoration: BoxDecoration(
-                      color: cs.surface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: cs.outlineVariant.withOpacity(0.55)),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '조금 더 정리해보면',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 12),
-                          Expanded(
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: cs.surfaceContainerLowest,
-                                border: Border.all(
-                                    color: cs.outlineVariant.withOpacity(0.45)),
-                              ),
-                              child: SingleChildScrollView(
-                                child: SelectableText(
-                                  aiText,
-                                  style: const TextStyle(fontSize: 14, height: 1.35),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          _aiSummaryCard(
-                            aiText: aiText,
-                            action: selected,
-                            resultKey: result ?? 'MAYBE',
-                            theme: Theme.of(ctx),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 56,
-                            child: FilledButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('닫기'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            );
-          } catch (e) {
-            // ✅ AI 실패면 롤백 + 안내
-            await rollbackOnce();
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('호출 실패')),
-            );
-          }
-        },
-
-        // ✅ 광고 닫힘: 보상 못 받았으면 롤백
-        // (RewardedAdService.show()가 void 콜백이라 async 붙이면 타입 안 맞을 수 있음)
-        onClosed: () {
-          if (!rewarded) {
-            rollbackOnce(); // fire-and-forget
-          }
-        },
-
-        // ✅ 광고 실패: 롤백 + 안내
-        onFailed: () {
-          rollbackOnce(); // fire-and-forget
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('광고 재생 실패')),
-          );
-        },
-      );
-    } finally {
-      _aiBusy = false;
-      if (mounted) setState(() {}); // ✅ 남은횟수(FutureBuilder) 갱신용
-    }
-  }
-
-
-
-  // --------------------------
-  // build (UI는 기존 그대로)
+  // build (UI는 기존 그대로, AI 버튼만 제거)
   // --------------------------
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
 
-    if (widget.actions.isNotEmpty &&
-        findDefByName(widget.actions, selected) == null) {
+    if (widget.actions.isNotEmpty && findDefByName(widget.actions, selected) == null) {
       selected = widget.actions.first.name;
     }
 
@@ -1310,7 +954,7 @@ $qa
                             child: SizedBox(
                               height: 52,
                               child: FilledButton(
-                                onPressed: _judge,
+                                onPressed: _judgeCore,   // 광고 없이 바로 질문
                                 child: const Text('판단하기'),
                               ),
                             ),
@@ -1337,23 +981,12 @@ $qa
                       Row(
                         children: [
                           TextButton(
-                            onPressed: result == null ? null : _showMoreReasons,
+                            onPressed: result == null ? null : _onReasonMorePressed,
                             child: const Text('이유 더 보기'),
                           ),
                           const Spacer(),
-                          FutureBuilder<int>(
-                            future: AiUsageStore.remainingToday(limit: 3), // ✅ used + reserved 기준
-                            builder: (context, snapshot) {
-                              final left = (snapshot.data ?? 3).clamp(0, 3);
-
-                              return TextButton.icon(
-                                onPressed: (_isAiEnabled() && result != null) ? _onAiDetail : null,
-                                icon: const Icon(Icons.headphones, size: 18),
-                                label: Text('조금 더 정리해보기 ($left/3)'),
-                              );
-                            },
-                          ),
-
+                          // ✅ AI 버튼 제거 (UI 깨짐 방지용 빈 공간)
+                          const SizedBox(width: 8),
                         ],
                       ),
                     ],
@@ -1419,7 +1052,8 @@ $qa
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text(q.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                      Text(q.title,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 12),
                       ...List.generate(q.choices.length, (i) {
                         final c = q.choices[i];
@@ -1436,13 +1070,16 @@ $qa
                                 borderRadius: BorderRadius.circular(14),
                                 color: isOn ? cs.primary.withOpacity(0.10) : cs.surfaceContainerLowest,
                                 border: Border.all(
-                                  color: isOn ? cs.primary.withOpacity(0.45) : cs.outlineVariant.withOpacity(0.45),
+                                  color: isOn
+                                      ? cs.primary.withOpacity(0.45)
+                                      : cs.outlineVariant.withOpacity(0.45),
                                 ),
                               ),
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(c.text, style: const TextStyle(fontWeight: FontWeight.w700)),
+                                    child: Text(c.text,
+                                        style: const TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                   if (isOn) const Icon(Icons.check, size: 18),
                                 ],
@@ -1534,7 +1171,8 @@ $qa
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text(q.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                      Text(q.title,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 12),
                       ...List.generate(q.choices.length, (i) {
                         final c = q.choices[i];
@@ -1551,13 +1189,16 @@ $qa
                                 borderRadius: BorderRadius.circular(14),
                                 color: isOn ? cs.primary.withOpacity(0.10) : cs.surfaceContainerLowest,
                                 border: Border.all(
-                                  color: isOn ? cs.primary.withOpacity(0.45) : cs.outlineVariant.withOpacity(0.45),
+                                  color: isOn
+                                      ? cs.primary.withOpacity(0.45)
+                                      : cs.outlineVariant.withOpacity(0.45),
                                 ),
                               ),
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(c.text, style: const TextStyle(fontWeight: FontWeight.w700)),
+                                    child: Text(c.text,
+                                        style: const TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                   if (isOn) const Icon(Icons.check, size: 18),
                                 ],
