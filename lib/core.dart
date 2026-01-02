@@ -87,7 +87,7 @@ class AppLaunchInterstitialController with WidgetsBindingObserver {
         return;
       }
 
-      // 🔥 하루 3회 제한
+      // 🔥 하루 2회 제한
       if (!await AdDailyLimit.canShowInterstitial()) return;
 
       await interstitialAds.show(
@@ -290,8 +290,8 @@ class AdDailyLimit {
     }
   }
 
-  /// 전면광고: 하루 최대 3회
-  static Future<bool> canShowInterstitial({int max = 3}) async {
+  /// 전면광고: 하루 최대 2회
+  static Future<bool> canShowInterstitial({int max = 2}) async {
     final prefs = await SharedPreferences.getInstance();
     await _resetIfNewDay(prefs);
     final used = prefs.getInt(_interstitialKey) ?? 0;
@@ -318,6 +318,14 @@ class AdDailyLimit {
     await _resetIfNewDay(prefs);
     final used = prefs.getInt(_rewardedKey) ?? 0;
     await prefs.setInt(_rewardedKey, used + 1);
+  }
+  /// ✅ 오늘 남은 보상형 광고 횟수
+  static Future<int> remainRewarded({int max = 2}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await _resetIfNewDay(prefs);
+    final used = prefs.getInt(_rewardedKey) ?? 0;
+    final remain = max - used;
+    return remain < 0 ? 0 : remain;
   }
 }
 
@@ -784,8 +792,9 @@ Future<ActionDef?> showAddActionDialog(BuildContext context) async {
           final mq = MediaQuery.of(ctx);
           final cs = Theme.of(ctx).colorScheme;
 
-          final availableH = mq.size.height - mq.viewInsets.bottom - 48;
+          final availableH = mq.size.height - 48; // ✅ viewInsets.bottom 제거
           final maxH = availableH.clamp(260.0, mq.size.height * 0.90);
+
 
           return AnimatedPadding(
             duration: const Duration(milliseconds: 150),

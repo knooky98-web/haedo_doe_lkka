@@ -4,7 +4,7 @@
 
 
     <application
-        android:label="haedo_doe_lkka"
+        android:label="선택일기"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- ✅ AdMob App ID (테스트용) -->

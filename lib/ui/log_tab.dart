@@ -5,7 +5,8 @@ import '../core.dart';
 
 /// =======================
 /// 1) 기록 탭
-/// =======================
+/// =========
+/// ==============
 class LogTab extends StatefulWidget {
   final List<ActionDef> actions;
   final List<LogItem> timeline;

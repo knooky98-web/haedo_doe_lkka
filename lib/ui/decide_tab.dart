@@ -621,8 +621,10 @@ class _DecideTabState extends State<DecideTab> {
       actionType: aType,
     );
 
-// ✅ body를 3단 문구로 교체
-    body = pack.toMultiline();
+// ✅ 결과 카드에는 "한 줄(해석)"만 보여주기
+    head = pack.interpret;   // 예: "지금은 미루는 게 더 현명해보여."
+    body = '';               // 결과 카드에서 상세 문구 제거(상세는 '이유 더 보기'에서만)
+
 
 // ✅ 기존 freq/gap 요약은 하단에 그대로 붙임(원하면 삭제 가능)
     final freqText = (stat.cnt5 == 0) ? '최근 5일간 0회' : '최근 5일간 ${stat.cnt5}회';
@@ -637,7 +639,7 @@ class _DecideTabState extends State<DecideTab> {
       pack.alternative,
     ];
 
-    return [head, body];
+    return [head, body];}
 
 
 
@@ -875,6 +877,8 @@ class _DecideTabState extends State<DecideTab> {
                   const Text('이유 더 보기',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 10),
+                 
+                  const SizedBox(height: 10),
                   Expanded(
                     child: SingleChildScrollView(
                       child: Column(
@@ -975,20 +979,11 @@ class _DecideTabState extends State<DecideTab> {
                           result: result,
                           reason1: reason1,
                           reason2: reason2,
+                          onMorePressed: result == null ? null : _onReasonMorePressed,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          TextButton(
-                            onPressed: result == null ? null : _onReasonMorePressed,
-                            child: const Text('이유 더 보기'),
-                          ),
-                          const Spacer(),
-                          // ✅ AI 버튼 제거 (UI 깨짐 방지용 빈 공간)
-                          const SizedBox(width: 8),
-                        ],
-                      ),
+
                     ],
                   ),
                 ),
@@ -1242,10 +1237,14 @@ class _ResultCard extends StatelessWidget {
   final String reason1;
   final String reason2;
 
+  // ✅ 카드 안 "이유 더 보기" 버튼용
+  final VoidCallback? onMorePressed;
+
   const _ResultCard({
     required this.result,
     required this.reason1,
     required this.reason2,
+    this.onMorePressed,
   });
 
   @override
@@ -1274,7 +1273,7 @@ class _ResultCard extends StatelessWidget {
         border = cs.primary.withOpacity(0.30);
         break;
       case 'NO':
-        title = '비추 (대안 권장)';
+        title = '지금은 비추';
         emoji = '🟡';
         border = Colors.orange.withOpacity(0.35);
         break;
@@ -1284,45 +1283,132 @@ class _ResultCard extends StatelessWidget {
         border = Colors.red.withOpacity(0.35);
         break;
       default:
-        title = '행동을 선택하고 “판단하기”를 눌러줘';
+        title = '판단 결과';
         emoji = '🧭';
         border = cs.outlineVariant.withOpacity(0.6);
+        break;
     }
+
+    final hasResult = result != null;
+    final canPressMore = hasResult && onMorePressed != null;
 
     return Container(
       width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
         color: cs.surface,
-        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border, width: 1.2),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 상단 라벨
+          Row(
             children: [
-              Text(emoji, style: const TextStyle(fontSize: 34)),
-              const SizedBox(height: 10),
-              Text(
-                title,
-                style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 10),
-              Divider(color: cs.outlineVariant.withOpacity(0.55)),
-              const SizedBox(height: 10),
-              Text(
-                reason1,
-                style: t.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                reason2,
-                style: t.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+              Text(emoji, style: const TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 10),
+
+          // ✅ 결과 한 줄(너가 원한 “문구 패키지”)
+          Text(
+            hasResult ? reason1 : '아직 판단 전이야. “판단하기”를 눌러봐.',
+            style: t.textTheme.bodyLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+              height: 1.25,
+            ),
+          ),
+
+          // (너 코드에선 reason2가 freq/gap 같은 요약이 들어감)
+          if (hasResult && reason2.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              reason2,
+              style: t.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                height: 1.35,
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 14),
+
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: canPressMore ? onMorePressed : null,
+            child: Ink(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: cs.outlineVariant.withOpacity(0.7)),
+                color: cs.surfaceContainerHighest.withOpacity(0.55),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: cs.primary.withOpacity(0.14),
+                      border: Border.all(color: cs.primary.withOpacity(0.25)),
+                    ),
+                    child: Icon(Icons.lock_open_rounded, color: cs.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '이유 더 보기',
+                          style: t.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '상세 이유 · 대안 확인하기',
+                          style: t.textTheme.labelMedium?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+                ],
+              ),
+            ),
+          ),
+// ✅ 🔽🔽🔽 여기 추가 (이유 더 보기 버튼 바로 아래)
+          const SizedBox(height: 8),
+          FutureBuilder<int>(
+            future: AdDailyLimit.remainRewarded(),
+            builder: (context, snap) {
+              final remain = snap.data ?? 0;
+              final msg = '오늘 남은 광고: $remain회\n광고 소진 후 오늘은 무료로 계속 볼 수 있어요';
+
+              return Text(
+                msg,
+                textAlign: TextAlign.center,
+                style: t.textTheme.labelSmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
